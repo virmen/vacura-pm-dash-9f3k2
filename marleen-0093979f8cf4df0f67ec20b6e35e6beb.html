@@ -1,0 +1,1108 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vacura — Dein Gehalt · Marleen</title>
+  <style>
+:root {
+  --teal: #0D595A;
+  --teal-mid: #1a8a8b;
+  --teal-light: #e8f4f4;
+  --teal-glow: rgba(13, 89, 90, 0.08);
+  --orange: #ED7D31;
+  --orange-light: #fef0e5;
+  --green: #2e7d32;
+  --green-light: #e8f5e9;
+  --red: #c62828;
+  --red-light: #ffebee;
+  --bg: #fafafa;
+  --white: #ffffff;
+  --ink: #1a1a1a;
+  --ink-soft: #4a4a4a;
+  --muted: #8e8e8e;
+  --line: #e8e8e8;
+  --line-strong: #d4d4d4;
+  --radius: 20px;
+  --radius-sm: 12px;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+  --shadow: 0 4px 24px rgba(0,0,0,0.06);
+  --shadow-lg: 0 12px 40px rgba(0,0,0,0.08);
+  --font: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;
+  --mono: 'SF Mono', Menlo, Monaco, monospace;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--ink);
+  line-height: 1.55;
+  font-feature-settings: 'tnum' 1, 'cv11' 1;
+  -webkit-font-smoothing: antialiased;
+}
+
+.container { max-width: 760px; margin: 0 auto; padding: 32px 20px 80px; }
+
+/* === TOP BAR === */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 28px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+.topbar-name {
+  font-size: 13px;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+.topbar-quartal {
+  font-size: 13px;
+  color: var(--ink);
+  font-weight: 500;
+  padding: 4px 12px;
+  background: var(--teal-light);
+  border-radius: 999px;
+  color: var(--teal);
+}
+
+/* === PAGE TITLE === */
+.page-title {
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin-bottom: 4px;
+  line-height: 1.1;
+}
+.page-subtitle {
+  font-size: 15px;
+  color: var(--muted);
+  margin-bottom: 40px;
+}
+
+/* === BLOCK === */
+.block { margin-bottom: 36px; }
+.block-label {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 14px;
+}
+.block-label::before {
+  content: ''; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--teal);
+}
+.block-title {
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--ink);
+  margin-bottom: 16px;
+  letter-spacing: -0.01em;
+}
+.block-intro {
+  font-size: 14px;
+  color: var(--ink-soft);
+  margin-bottom: 18px;
+  line-height: 1.6;
+}
+
+/* === HERO CARD === */
+.hero-card {
+  background: linear-gradient(135deg, var(--teal) 0%, var(--teal-mid) 100%);
+  color: white;
+  border-radius: var(--radius);
+  padding: 36px 32px;
+  margin-bottom: 12px;
+  box-shadow: var(--shadow-lg);
+  position: relative;
+  overflow: hidden;
+}
+.hero-card::before {
+  content: '';
+  position: absolute;
+  top: -40px; right: -40px;
+  width: 200px; height: 200px;
+  background: radial-gradient(circle, rgba(255,255,255,0.1), transparent 70%);
+  border-radius: 50%;
+}
+.hero-stufe {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  opacity: 0.85;
+  padding: 5px 12px;
+  background: rgba(255,255,255,0.15);
+  border-radius: 999px;
+  margin-bottom: 20px;
+}
+.hero-gehalt {
+  font-size: 56px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  margin-bottom: 4px;
+}
+.hero-gehalt-unit {
+  font-size: 18px;
+  font-weight: 500;
+  opacity: 0.9;
+  margin-bottom: 20px;
+}
+.hero-meta {
+  display: flex; gap: 24px; flex-wrap: wrap;
+  padding-top: 20px;
+  border-top: 1px solid rgba(255,255,255,0.15);
+  font-size: 13px;
+}
+.hero-meta-item { opacity: 0.9; }
+.hero-meta-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.7;
+  display: block;
+  margin-bottom: 2px;
+}
+.hero-meta-value { font-weight: 700; font-size: 15px; }
+
+/* === BREAKDOWN === */
+.breakdown-card {
+  background: var(--white);
+  border-radius: var(--radius);
+  padding: 24px 28px;
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--line);
+}
+.breakdown-formula {
+  font-size: 15px;
+  color: var(--ink-soft);
+  margin-bottom: 18px;
+  line-height: 1.7;
+}
+.breakdown-bar {
+  display: flex; height: 40px;
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 12px;
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.breakdown-seg {
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700; color: white;
+  white-space: nowrap;
+  padding: 0 10px;
+}
+.breakdown-seg.sockel { background: var(--teal); }
+.breakdown-seg.bundle { background: var(--teal-mid); }
+.breakdown-seg.stufe { background: var(--orange); }
+.breakdown-seg.rest { background: var(--line); color: var(--muted); }
+
+.breakdown-legend {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+.breakdown-legend-item {
+  display: flex; flex-direction: column; gap: 2px;
+  padding-left: 12px;
+  border-left: 3px solid var(--teal);
+}
+.breakdown-legend-item.bundle { border-color: var(--teal-mid); }
+.breakdown-legend-item.stufe { border-color: var(--orange); }
+.breakdown-legend-label {
+  font-size: 11px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.05em;
+}
+.breakdown-legend-val { font-size: 16px; font-weight: 700; color: var(--ink); }
+.breakdown-result {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px dashed var(--line-strong);
+  display: flex; align-items: baseline; justify-content: space-between;
+  flex-wrap: wrap; gap: 12px;
+}
+.breakdown-result-label { font-size: 13px; color: var(--muted); }
+.breakdown-result-val { font-size: 28px; font-weight: 800; color: var(--teal); }
+
+/* === TWO-KPI GRID === */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.kpi-card {
+  background: var(--white);
+  border-radius: var(--radius-sm);
+  padding: 22px 20px;
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-sm);
+}
+.kpi-label {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.kpi-value {
+  font-size: 34px; font-weight: 800; letter-spacing: -0.02em;
+  line-height: 1; margin-bottom: 4px;
+}
+.kpi-value.good { color: var(--green); }
+.kpi-value.ok { color: var(--teal); }
+.kpi-value.warn { color: var(--orange); }
+.kpi-unit { font-size: 14px; font-weight: 500; color: var(--muted); margin-left: 2px; }
+.kpi-schwelle {
+  font-size: 12px; color: var(--muted); margin-top: 10px;
+  padding-top: 10px; border-top: 1px solid var(--line);
+}
+.kpi-schwelle strong { color: var(--ink-soft); font-weight: 600; }
+.kpi-bar {
+  margin-top: 12px;
+  height: 6px; background: var(--line); border-radius: 3px; overflow: hidden;
+}
+.kpi-bar-fill {
+  height: 100%; border-radius: 3px;
+  background: linear-gradient(90deg, var(--teal), var(--teal-mid));
+  transition: width 0.8s ease;
+}
+.kpi-bar-fill.over { background: linear-gradient(90deg, var(--green), #66bb6a); }
+.kpi-bar-fill.under { background: linear-gradient(90deg, var(--orange), #ffab40); }
+
+/* === STUFEN-LEITER === */
+.stufen-scroll {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding: 8px 2px 14px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+.stufen-scroll::-webkit-scrollbar { height: 4px; }
+.stufen-scroll::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 2px; }
+
+.stufe-chip {
+  flex: 0 0 auto;
+  background: var(--white);
+  border: 2px solid var(--line);
+  border-radius: 14px;
+  padding: 14px 16px;
+  min-width: 120px;
+  text-align: center;
+  transition: all 0.2s;
+}
+.stufe-chip-num {
+  font-size: 10px; font-weight: 700;
+  color: var(--muted); letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+.stufe-chip-name {
+  font-size: 14px; font-weight: 700; color: var(--ink);
+  margin-bottom: 8px;
+}
+.stufe-chip-detail {
+  font-size: 11px; color: var(--muted); line-height: 1.4;
+}
+.stufe-chip.current {
+  border-color: var(--teal); background: var(--teal-light);
+  transform: scale(1.05);
+  box-shadow: var(--shadow);
+}
+.stufe-chip.current .stufe-chip-name { color: var(--teal); }
+.stufe-chip.next {
+  border-color: var(--orange);
+  border-style: dashed;
+  background: var(--orange-light);
+}
+.stufe-chip.next .stufe-chip-name { color: var(--orange); }
+
+/* === GAP BLOCK === */
+.gap-card {
+  background: linear-gradient(135deg, var(--orange-light) 0%, #fff5e6 100%);
+  border-radius: var(--radius);
+  padding: 24px 28px;
+  border: 1px solid #ffd9b3;
+}
+.gap-header {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 16px;
+}
+.gap-from, .gap-to {
+  display: inline-flex; align-items: center;
+  padding: 4px 12px; border-radius: 999px;
+  font-size: 12px; font-weight: 700;
+}
+.gap-from { background: var(--teal-light); color: var(--teal); }
+.gap-to { background: var(--orange-light); color: var(--orange); border: 1px solid #ffb27a; }
+.gap-arrow { color: var(--muted); font-size: 18px; }
+.gap-numbers {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.gap-number { }
+.gap-number-label {
+  font-size: 11px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.08em;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.gap-number-val { font-size: 22px; font-weight: 800; color: var(--orange); }
+.gap-number-val.pos { color: var(--green); }
+.gap-bar-wrap {
+  background: rgba(255,255,255,0.6);
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+.gap-bar-label {
+  font-size: 11px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.08em;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.gap-bar {
+  height: 10px; background: white; border-radius: 5px;
+  overflow: hidden; margin-bottom: 6px;
+  border: 1px solid #ffd9b3;
+}
+.gap-bar-fill {
+  height: 100%; border-radius: 5px;
+  background: linear-gradient(90deg, var(--orange), #ffab40);
+  transition: width 0.8s ease;
+}
+.gap-bar-caption { font-size: 11px; color: var(--muted); text-align: right; }
+
+/* === HEBEL === */
+.hebel-grid {
+  display: grid; gap: 10px;
+}
+.hebel-item {
+  background: var(--white);
+  border-radius: var(--radius-sm);
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 16px;
+  align-items: center;
+}
+.hebel-content { }
+.hebel-name { font-weight: 700; color: var(--ink); margin-bottom: 4px; }
+.hebel-desc { font-size: 13px; color: var(--ink-soft); line-height: 1.5; }
+.hebel-effect {
+  font-size: 12px; font-weight: 700;
+  color: var(--teal);
+  background: var(--teal-light);
+  padding: 8px 12px;
+  border-radius: 8px;
+  white-space: nowrap;
+  text-align: center;
+}
+.hebel-note {
+  font-size: 12px; color: var(--muted);
+  margin-top: 10px; font-style: italic;
+}
+
+/* === TIMELINE === */
+.timeline-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+}
+.timeline-item {
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 14px 16px;
+}
+.timeline-item.current {
+  border-color: var(--teal); background: var(--teal-light);
+}
+.timeline-item.empty {
+  background: #f7f7f7; border-style: dashed;
+}
+.timeline-q {
+  font-size: 11px; color: var(--muted); font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  margin-bottom: 6px;
+}
+.timeline-stufe { font-size: 14px; font-weight: 700; color: var(--ink); margin-bottom: 2px; }
+.timeline-gehalt { font-size: 13px; color: var(--ink-soft); }
+.timeline-empty { font-size: 12px; color: var(--muted); font-style: italic; }
+
+/* === LIVE === */
+.live-card {
+  background: var(--white);
+  border: 2px solid var(--teal-mid);
+  border-radius: var(--radius);
+  padding: 24px 28px;
+  box-shadow: var(--shadow);
+}
+.live-status {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 12px; font-weight: 700;
+  color: var(--teal);
+  padding: 4px 12px;
+  background: var(--teal-light);
+  border-radius: 999px;
+  margin-bottom: 16px;
+}
+.live-status::before {
+  content: ''; display: inline-block;
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--green); animation: pulse 2s infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.3); }
+}
+.live-placeholder {
+  font-size: 14px; color: var(--muted); line-height: 1.6;
+  padding: 16px;
+  background: var(--bg);
+  border-radius: var(--radius-sm);
+}
+
+/* === FOOTER === */
+.footer {
+  margin-top: 48px; padding-top: 24px;
+  border-top: 1px solid var(--line);
+  text-align: center;
+  font-size: 12px; color: var(--muted);
+}
+.footer a { color: var(--teal); text-decoration: none; }
+
+
+.gap-row {
+  display: flex;
+  gap: 14px;
+  padding: 18px 0;
+  border-top: 1px solid #ffd9b3;
+}
+.gap-row:first-child { border-top: none; padding-top: 4px; }
+.gap-row:last-child { padding-bottom: 4px; }
+.gap-row-icon {
+  width: 32px; height: 32px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px; font-weight: 700; flex-shrink: 0;
+}
+.gap-row.done .gap-row-icon {
+  background: var(--green-light); color: var(--green);
+}
+.gap-row.gap .gap-row-icon {
+  background: var(--orange-light); color: var(--orange);
+}
+.gap-row-content { flex: 1; min-width: 0; }
+.gap-row-title {
+  font-weight: 700; font-size: 15px; color: var(--ink);
+  margin-bottom: 8px;
+}
+.gap-row.done .gap-row-title { color: var(--green); }
+.gap-row-detail {
+  font-size: 13px; color: var(--ink-soft); line-height: 1.5;
+}
+.gap-row-kpis {
+  display: grid; grid-template-columns: auto 1fr; gap: 12px 18px;
+  margin-bottom: 10px;
+}
+.gap-mini-label {
+  font-size: 11px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.05em;
+  margin-bottom: 2px;
+}
+.gap-mini-val { font-size: 17px; font-weight: 700; color: var(--orange); }
+
+@media (max-width: 600px) {
+  .gap-row-kpis { grid-template-columns: 1fr; }
+}
+
+/* === ZUFRIEDENHEITS-BREAKDOWN === */
+.zufr-breakdown {
+  margin-top: 14px; padding-top: 14px;
+  border-top: 1px dashed var(--line);
+}
+.zufr-breakdown-title {
+  font-size: 10px; font-weight: 700; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.08em;
+  margin-bottom: 10px;
+}
+.zufr-sub {
+  display: grid; grid-template-columns: 1fr auto; gap: 4px 10px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.zufr-sub:last-child { margin-bottom: 0; }
+.zufr-sub-label {
+  font-size: 12px; color: var(--ink-soft);
+  grid-column: 1 / 3;
+}
+.zufr-sub-bar {
+  grid-column: 1;
+  height: 5px; background: var(--line); border-radius: 3px;
+  overflow: hidden;
+}
+.zufr-sub-fill {
+  display: block; height: 100%;
+  background: linear-gradient(90deg, var(--teal-mid), var(--teal));
+  border-radius: 3px;
+}
+.zufr-sub-val {
+  grid-column: 2; grid-row: 2;
+  font-size: 13px; font-weight: 700; color: var(--teal);
+  white-space: nowrap;
+}
+.zufr-sub-val small { font-weight: 500; color: var(--muted); margin-left: 2px; font-size: 11px; }
+
+/* === LIVE KPIs === */
+.live-kpi-card {
+  background: linear-gradient(135deg, #fff 0%, var(--bg) 100%);
+  border: 2px solid var(--teal-light);
+  border-radius: var(--radius);
+  padding: 20px 22px;
+  margin-bottom: 18px;
+  box-shadow: var(--shadow-sm);
+}
+.live-kpi-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 14px; padding-bottom: 12px;
+  border-bottom: 1px dashed var(--line);
+}
+.live-kpi-title {
+  font-size: 14px; font-weight: 800; color: var(--teal);
+  text-transform: uppercase; letter-spacing: 0.05em;
+}
+.live-kpi-date {
+  font-size: 11px; color: var(--muted);
+  background: var(--teal-light);
+  padding: 3px 10px; border-radius: 999px;
+  color: var(--teal); font-weight: 600;
+}
+.live-kpi-row {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  gap: 10px 14px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.live-kpi-row:last-child { margin-bottom: 0; }
+.live-kpi-label {
+  font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.live-kpi-chip-track {
+  position: relative;
+  background: var(--bg);
+  border-radius: 10px;
+  height: 36px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+}
+.live-kpi-chip {
+  position: absolute; inset: 0 auto 0 0;
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 0 12px;
+  border-radius: 10px;
+  font-size: 13px; font-weight: 700;
+  color: white;
+  box-shadow: var(--shadow-sm);
+  transition: width 0.6s ease;
+}
+.live-kpi-note {
+  grid-column: 2 / 3;
+  font-size: 11px; color: var(--muted);
+  font-style: italic;
+  margin-top: -4px;
+}
+@media (max-width: 600px) {
+  .live-kpi-row { grid-template-columns: 1fr; gap: 4px; }
+  .live-kpi-note { grid-column: 1; }
+}
+
+/* === WEGE === */
+.wege-grid { display: grid; gap: 14px; }
+.weg-card {
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 20px 22px;
+  box-shadow: var(--shadow-sm);
+  position: relative;
+  overflow: hidden;
+}
+.weg-card::before {
+  content: ''; position: absolute;
+  top: 0; left: 0; width: 4px; height: 100%;
+  background: linear-gradient(180deg, var(--teal), var(--teal-mid));
+}
+.weg-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 16px; padding-bottom: 14px;
+  border-bottom: 1px dashed var(--line);
+}
+.weg-head-label {
+  font-size: 17px; font-weight: 800; color: var(--teal);
+  letter-spacing: -0.01em;
+}
+.weg-head-tag {
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--muted);
+  background: var(--bg); padding: 4px 10px; border-radius: 999px;
+}
+.weg-vars { display: grid; gap: 10px; }
+.weg-var {
+  display: grid; grid-template-columns: 110px 1fr;
+  align-items: center; gap: 14px;
+}
+.weg-var-label {
+  font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.weg-chip-track {
+  position: relative;
+  background: var(--bg);
+  border-radius: 10px;
+  height: 40px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+}
+.weg-chip {
+  position: absolute; inset: 0 auto 0 0;
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 0 14px;
+  border-radius: 10px;
+  font-size: 14px; font-weight: 700;
+  color: white;
+  box-shadow: var(--shadow-sm);
+  transition: width 0.6s ease;
+}
+.weg-chip-text { font-size: 14px; font-weight: 700; white-space: nowrap; }
+.weg-chip-range {
+  font-size: 12px; font-weight: 600;
+  background: rgba(255,255,255,0.22);
+  padding: 2px 8px; border-radius: 999px;
+  white-space: nowrap;
+}
+.weg-chip-low   { width: 32%; background: linear-gradient(135deg, #8bc34a, #7cb342); }
+.weg-chip-mid   { width: 55%; background: linear-gradient(135deg, #ffb547, #ff9800); }
+.weg-chip-high  { width: 78%; background: linear-gradient(135deg, var(--teal-mid), var(--teal)); }
+.weg-chip-vhigh { width: 100%; background: linear-gradient(135deg, #095859, #054546); }
+
+.weg-text {
+  background: var(--bg); border-radius: var(--radius-sm);
+  padding: 20px 22px; color: var(--ink-soft);
+  font-size: 14px; line-height: 1.6;
+  border-left: 3px solid var(--teal);
+}
+
+.weg-legende {
+  margin-top: 18px; padding: 16px 18px;
+  background: var(--bg); border-radius: var(--radius-sm);
+  font-size: 12px; color: var(--muted);
+  border: 1px solid var(--line);
+}
+.weg-legende-title {
+  font-weight: 700; font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--ink-soft); margin-bottom: 12px;
+}
+.weg-legende-row {
+  display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; align-items: center;
+}
+.weg-legende-row:last-child { margin-bottom: 0; }
+.weg-legende-kpi {
+  font-weight: 700; color: var(--ink-soft); font-size: 12px;
+  min-width: 90px;
+}
+.weg-legende-item {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 10px; border-radius: 999px;
+  color: white; font-size: 11px; font-weight: 700;
+}
+.weg-legende-item.low   { background: #8bc34a; }
+.weg-legende-item.mid   { background: #ff9800; }
+.weg-legende-item.high  { background: var(--teal); }
+.weg-legende-item.vhigh { background: #095859; }
+.weg-legende-item .rg {
+  opacity: 0.85; font-weight: 500; font-size: 10px;
+}
+
+/* === RESPONSIVE === */
+@media (max-width: 600px) {
+  .container { padding: 20px 16px 60px; }
+  .hero-gehalt { font-size: 44px; }
+  .kpi-grid { grid-template-columns: 1fr; }
+  .gap-numbers { grid-template-columns: 1fr; }
+  .breakdown-legend { grid-template-columns: 1fr 1fr; }
+  .hebel-item { grid-template-columns: 1fr; gap: 10px; }
+  .hebel-effect { width: 100%; }
+}
+</style>
+</head>
+<body>
+<div class="container">
+  
+  <div class="topbar">
+    <span class="topbar-name">Vacura · Gehalts-Dashboard</span>
+    <span class="topbar-quartal">Q1 2026</span>
+  </div>
+  
+  <h1 class="page-title">Hallo Marleen.</h1>
+  <p class="page-subtitle">Dein Stand nach Q1 2026 und was das für Q2 bedeutet.</p>
+  
+  <!-- BLOCK 1: HERO -->
+  <div class="block">
+    <div class="hero-card">
+      <div class="hero-stufe">Stufe 2</div>
+      <div class="hero-gehalt">3.940 €</div>
+      <div class="hero-gehalt-unit">Monatsgehalt ab Q2 2026</div>
+      <div class="hero-meta">
+        <div class="hero-meta-item">
+          <span class="hero-meta-label">Jahresgehalt</span>
+          <span class="hero-meta-value">47.286 €</span>
+        </div>
+        <div class="hero-meta-item">
+          <span class="hero-meta-label">Bundle</span>
+          <span class="hero-meta-value">Friedrichshain, Charlottenburg, Prenzlauer Berg</span>
+        </div>
+        <div class="hero-meta-item">
+          <span class="hero-meta-label">Wochenstunden</span>
+          <span class="hero-meta-value">40 h</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- BLOCK 2: BREAKDOWN -->
+  <div class="block">
+    <div class="block-label">Transparenz</div>
+    <div class="block-title">Wie setzt sich dein Gehalt zusammen?</div>
+    <div class="breakdown-card">
+      <div class="breakdown-formula">
+        <strong>Sockel</strong> + <strong>Bundle-Zulage</strong> = <strong>Basis-Gehalt</strong>, davon <strong>+11%</strong> Stufen-Zulage
+      </div>
+      <div class="breakdown-bar">
+        <div class="breakdown-seg sockel" style="flex: 84.6">Sockel</div>
+        <div class="breakdown-seg bundle" style="flex: 5.5">Bundle</div>
+        <div class="breakdown-seg stufe" style="flex: 9.9">+ Stufe 2</div>
+      </div>
+      <div class="breakdown-legend">
+        <div class="breakdown-legend-item">
+          <div class="breakdown-legend-label">Sockel (Vollzeit)</div>
+          <div class="breakdown-legend-val">40.000 €</div>
+        </div>
+        <div class="breakdown-legend-item bundle">
+          <div class="breakdown-legend-label">Bundle-Zulage (8 TH-Äqui)</div>
+          <div class="breakdown-legend-val">+2.600 €</div>
+        </div>
+        <div class="breakdown-legend-item stufe">
+          <div class="breakdown-legend-label">Variable Zulage (+11%)</div>
+          <div class="breakdown-legend-val">× 1.11</div>
+        </div>
+      </div>
+      <div class="breakdown-result">
+        <span class="breakdown-result-label">→ Jahresgehalt (bei 40 h/Woche)</span>
+        <span class="breakdown-result-val">47.286 €</span>
+      </div>
+    </div>
+  </div>
+  
+  <!-- BLOCK 3: WARUM DIESE STUFE -->
+  <div class="block">
+    <div class="block-label">Einordnung</div>
+    <div class="block-title">Woher kommt deine Stufe?</div>
+    <p class="block-intro">Beide Werte müssen gleichzeitig die Schwelle erreichen. Umsatz und Team-Stimmung sind UND-verknüpft.</p>
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-label">Dein Umsatz pro Therapie-Stunde</div>
+        <div class="kpi-value ok">66,92 <span class="kpi-unit">€/h</span></div>
+        <div class="kpi-schwelle">Schwelle Stufe 2: <strong>66,54 €/h</strong> · Stufe 3: 72,64 €/h</div>
+        <div class="kpi-bar"><div class="kpi-bar-fill over" style="width: 92%"></div></div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Team-Zufriedenheit</div>
+        <div class="kpi-value ok">8.2 <span class="kpi-unit">/ 10</span></div>
+        <div class="kpi-schwelle">Schwelle Stufe 2: <strong>6.0</strong> · Stufe 3: 7.0</div>
+        <div class="kpi-bar"><div class="kpi-bar-fill over" style="width: 100%"></div></div>
+        <div class="zufr-breakdown">
+          <div class="zufr-breakdown-title">So setzt sich der Score zusammen</div>
+          <div class="zufr-sub">
+            <span class="zufr-sub-label">Rücken freihalten</span>
+            <span class="zufr-sub-bar"><span class="zufr-sub-fill" style="width:85%"></span></span>
+            <span class="zufr-sub-val">8.5 <small>× 20 %</small></span>
+          </div>
+          <div class="zufr-sub">
+            <span class="zufr-sub-label">Kommunikation</span>
+            <span class="zufr-sub-bar"><span class="zufr-sub-fill" style="width:87%"></span></span>
+            <span class="zufr-sub-val">8.7 <small>× 20 %</small></span>
+          </div>
+          <div class="zufr-sub">
+            <span class="zufr-sub-label">Weiterempfehlung (eNPS)</span>
+            <span class="zufr-sub-bar"><span class="zufr-sub-fill" style="width:80%"></span></span>
+            <span class="zufr-sub-val">8.0 <small>× 60 %</small></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- BLOCK 4: STUFEN-LEITER -->
+  <div class="block">
+    <div class="block-label">Überblick</div>
+    <div class="block-title">Die 6 Stufen</div>
+    <div class="stufen-scroll">
+      
+        <div class="stufe-chip ">
+          <div class="stufe-chip-num">Stufe</div>
+          <div class="stufe-chip-name">1</div>
+          <div class="stufe-chip-detail">€/h ≥ 61,17<br>Zufriedenheit ≥ 5.0<br>+0% Zulage</div>
+        </div>
+        <div class="stufe-chip current">
+          <div class="stufe-chip-num">★ Deine Stufe</div>
+          <div class="stufe-chip-name">2</div>
+          <div class="stufe-chip-detail">€/h ≥ 66,54<br>Zufriedenheit ≥ 6.0<br>+11% Zulage</div>
+        </div>
+        <div class="stufe-chip next">
+          <div class="stufe-chip-num">Nächste Stufe</div>
+          <div class="stufe-chip-name">3</div>
+          <div class="stufe-chip-detail">€/h ≥ 72,64<br>Zufriedenheit ≥ 7.0<br>+22% Zulage</div>
+        </div>
+        <div class="stufe-chip ">
+          <div class="stufe-chip-num">Stufe</div>
+          <div class="stufe-chip-name">4</div>
+          <div class="stufe-chip-detail">€/h ≥ 77,28<br>Zufriedenheit ≥ 8.0<br>+33% Zulage</div>
+        </div>
+        <div class="stufe-chip ">
+          <div class="stufe-chip-num">Stufe</div>
+          <div class="stufe-chip-name">5</div>
+          <div class="stufe-chip-detail">€/h ≥ 84,11<br>Zufriedenheit ≥ 8.5<br>+44% Zulage</div>
+        </div>
+        <div class="stufe-chip ">
+          <div class="stufe-chip-num">Stufe</div>
+          <div class="stufe-chip-name">6</div>
+          <div class="stufe-chip-detail">€/h ≥ 89,48<br>Zufriedenheit ≥ 8.5<br>+55% Zulage</div>
+        </div>
+    </div>
+  </div>
+  
+  
+        <div class="block">
+          <div class="block-label">Ausblick</div>
+          <div class="block-title">Was bringt dir Stufe 3?</div>
+          <div class="kpi-grid">
+            <div class="kpi-card">
+              <div class="kpi-label">Monatsgehalt bei Stufe 3</div>
+              <div class="kpi-value good">4.331 <span class="kpi-unit">€</span></div>
+              <div class="kpi-schwelle">Δ zum jetzigen Gehalt: <strong>+391 € / Monat</strong></div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-label">Jahresgehalt bei Stufe 3</div>
+              <div class="kpi-value good">51.972 <span class="kpi-unit">€</span></div>
+              <div class="kpi-schwelle">Δ pro Jahr: <strong>+4.686 €</strong></div>
+            </div>
+          </div>
+        </div>
+        
+  
+  
+        <div class="block">
+          <div class="block-label">Weg zur nächsten Stufe</div>
+          <div class="block-title">Wie kommst du auf Stufe 3?</div>
+          <p class="block-intro">Für Stufe 3 müssen <strong>beide</strong> Bedingungen erfüllt sein — Umsatz <strong>und</strong> Team-Zufriedenheit.</p>
+          <div class="gap-card">
+            
+            <div class="gap-row gap">
+              <div class="gap-row-icon">↗</div>
+              <div class="gap-row-content">
+                <div class="gap-row-title">Mehr Umsatz pro Therapie-Stunde</div>
+                <div class="gap-row-kpis">
+                  <div class="gap-mini">
+                    <div class="gap-mini-label">Fehlt</div>
+                    <div class="gap-mini-val">+5,72 €/h</div>
+                  </div>
+                  <div class="gap-mini">
+                    <div class="gap-mini-label">Als Bundle-Umsatz/Monat</div>
+                    <div class="gap-mini-val">+9.636 €</div>
+                  </div>
+                </div>
+                <div class="gap-bar"><div class="gap-bar-fill" style="width: 6%"></div></div>
+                <div class="gap-bar-caption">66,92 €/h → 72,64 €/h</div>
+              </div>
+            </div>
+            
+            <div class="gap-row done">
+              <div class="gap-row-icon">✓</div>
+              <div class="gap-row-content">
+                <div class="gap-row-title">Team-Zufriedenheit — erreicht</div>
+                <div class="gap-row-detail">Du hast 8.2 / 10, Schwelle für Stufe 3: 7.0</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+
+  
+        <div class="block">
+          <div class="block-label">Konkrete Wege</div>
+          <div class="block-title">Optionen um Stufe 3 zu erreichen</div>
+          <p class="block-intro">Jeder Weg ist eine mögliche Kombination aus Auslastung, PKV-Quote und Krankenstand. Schon eine dieser Kombinationen reicht.</p>
+          
+            <div class="live-kpi-card">
+              <div class="live-kpi-header">
+                <div class="live-kpi-title">Dein aktueller Stand</div>
+                <div class="live-kpi-date">Stand: 28.04.2026</div>
+              </div>
+              
+            <div class="live-kpi-row">
+              <div class="live-kpi-label">Auslastung</div>
+              <div class="live-kpi-chip-track">
+                <div class="live-kpi-chip weg-chip-mid" style="width:55%">
+                  <span class="weg-chip-text">mittel</span>
+                  <span class="weg-chip-range">90 %</span>
+                </div>
+              </div>
+              <div class="live-kpi-note">letzte 30 Tage (Auslastungs-Workflow)</div>
+            </div>
+            <div class="live-kpi-row">
+              <div class="live-kpi-label">PKV-Quote</div>
+              <div class="live-kpi-chip-track">
+                <div class="live-kpi-chip weg-chip-low" style="width:32%">
+                  <span class="weg-chip-text">gering</span>
+                  <span class="weg-chip-range">6 %</span>
+                </div>
+              </div>
+              <div class="live-kpi-note">Q2 2026 bisher (1390 Termine)</div>
+            </div>
+            <div class="live-kpi-row">
+              <div class="live-kpi-label">Krank-Tage/TH/Jahr</div>
+              <div class="live-kpi-chip-track">
+                <div class="live-kpi-chip weg-chip-low" style="width:32%">
+                  <span class="weg-chip-text">wenig</span>
+                  <span class="weg-chip-range">13 Tg./Jahr</span>
+                </div>
+              </div>
+              <div class="live-kpi-note">Q2 2026 bisher, aufs Jahr hochgerechnet</div>
+            </div>
+            </div>
+            
+          <div class="wege-grid"><div class="weg-card"><div class="weg-head"><span class="weg-head-label">Weg A</span><span class="weg-head-tag">Kombination</span></div><div class="weg-vars"><div class="weg-var"><div class="weg-var-label">Auslastung</div><div class="weg-chip-track"><div class="weg-chip weg-chip-vhigh"><span class="weg-chip-text">sehr hoch</span><span class="weg-chip-range">96 %+</span></div></div></div><div class="weg-var"><div class="weg-var-label">PKV-Quote</div><div class="weg-chip-track"><div class="weg-chip weg-chip-low"><span class="weg-chip-text">gering</span><span class="weg-chip-range">8–18 %</span></div></div></div><div class="weg-var"><div class="weg-var-label">Krankheit</div><div class="weg-chip-track"><div class="weg-chip weg-chip-high"><span class="weg-chip-text">höher</span><span class="weg-chip-range">21–25 Tg./a</span></div></div></div></div></div><div class="weg-card"><div class="weg-head"><span class="weg-head-label">Weg B</span><span class="weg-head-tag">Kombination</span></div><div class="weg-vars"><div class="weg-var"><div class="weg-var-label">Auslastung</div><div class="weg-chip-track"><div class="weg-chip weg-chip-high"><span class="weg-chip-text">hoch</span><span class="weg-chip-range">93–95 %</span></div></div></div><div class="weg-var"><div class="weg-var-label">PKV-Quote</div><div class="weg-chip-track"><div class="weg-chip weg-chip-low"><span class="weg-chip-text">gering</span><span class="weg-chip-range">8–18 %</span></div></div></div><div class="weg-var"><div class="weg-var-label">Krankheit</div><div class="weg-chip-track"><div class="weg-chip weg-chip-high"><span class="weg-chip-text">höher</span><span class="weg-chip-range">21–25 Tg./a</span></div></div></div></div></div><div class="weg-card"><div class="weg-head"><span class="weg-head-label">Weg C</span><span class="weg-head-tag">Kombination</span></div><div class="weg-vars"><div class="weg-var"><div class="weg-var-label">Auslastung</div><div class="weg-chip-track"><div class="weg-chip weg-chip-mid"><span class="weg-chip-text">mittel</span><span class="weg-chip-range">85–92 %</span></div></div></div><div class="weg-var"><div class="weg-var-label">PKV-Quote</div><div class="weg-chip-track"><div class="weg-chip weg-chip-low"><span class="weg-chip-text">gering</span><span class="weg-chip-range">8–18 %</span></div></div></div><div class="weg-var"><div class="weg-var-label">Krankheit</div><div class="weg-chip-track"><div class="weg-chip weg-chip-low"><span class="weg-chip-text">wenig</span><span class="weg-chip-range">10–15 Tg./a</span></div></div></div></div></div></div>
+          
+        <div class="weg-legende">
+          <div class="weg-legende-title">Was bedeuten die Stufen?</div>
+          <div class="weg-legende-row">
+            <span class="weg-legende-kpi">Auslastung</span>
+            <span class="weg-legende-item mid">mittel <span class="rg">85–92 %</span></span>
+            <span class="weg-legende-item high">hoch <span class="rg">93–95 %</span></span>
+            <span class="weg-legende-item vhigh">sehr hoch <span class="rg">96 %+</span></span>
+          </div>
+          <div class="weg-legende-row">
+            <span class="weg-legende-kpi">PKV-Quote</span>
+            <span class="weg-legende-item low">gering <span class="rg">8–18 %</span></span>
+            <span class="weg-legende-item mid">mittel <span class="rg">19–29 %</span></span>
+            <span class="weg-legende-item high">hoch <span class="rg">30–39 %</span></span>
+            <span class="weg-legende-item vhigh">sehr hoch <span class="rg">40 %+</span></span>
+          </div>
+          <div class="weg-legende-row">
+            <span class="weg-legende-kpi">Krankheit</span>
+            <span class="weg-legende-item low">wenig <span class="rg">10–15 Tg./a</span></span>
+            <span class="weg-legende-item mid">normal <span class="rg">16–20 Tg./a</span></span>
+            <span class="weg-legende-item high">höher <span class="rg">21–25 Tg./a</span></span>
+          </div>
+        </div>
+        
+        </div>
+        
+
+  <!-- BLOCK 7: HEBEL -->
+  <div class="block">
+    <div class="block-label">Aktion</div>
+    <div class="block-title">Wie kommst du weiter?</div>
+    <div class="hebel-grid">
+      <div class="hebel-item">
+        <div class="hebel-content">
+          <div class="hebel-name">Mehr Termine pro Woche</div>
+          <div class="hebel-desc">Auslastung erhöhen, neue Patienten gewinnen, Slots besser nutzen.</div>
+        </div>
+        <div class="hebel-effect">+10 Termine/Wo<br>≈ +3 % Umsatz</div>
+      </div>
+      <div class="hebel-item">
+        <div class="hebel-content">
+          <div class="hebel-name">Höherer PKV-Anteil</div>
+          <div class="hebel-desc">Privatpatienten aktiv ansprechen. PKV zahlt 1,7× den GKV-Tarif.</div>
+        </div>
+        <div class="hebel-effect">+1 %-Pkt PKV<br>≈ +0,7 % Umsatz</div>
+      </div>
+      <div class="hebel-item">
+        <div class="hebel-content">
+          <div class="hebel-name">Krankenstand senken</div>
+          <div class="hebel-desc">Team-Gesundheit, gute Urlaubsplanung, keine Ansteckungsketten.</div>
+        </div>
+        <div class="hebel-effect">−1 %-Pkt Krank<br>≈ +0,5 % Umsatz</div>
+      </div>
+    </div>
+    <p class="hebel-note">Orientierungswerte — keine exakten Prognosen.</p>
+  </div>
+  
+  <!-- BLOCK 8: TIMELINE -->
+  <div class="block">
+    <div class="block-label">Verlauf</div>
+    <div class="block-title">Deine Entwicklung</div>
+    <div class="timeline-grid">
+      <div class="timeline-item current">
+        <div class="timeline-q">Q1 2026</div>
+        <div class="timeline-stufe">Stufe 2</div>
+        <div class="timeline-gehalt">3.940 € / Monat</div>
+      </div>
+      <div class="timeline-item empty">
+        <div class="timeline-q">Q2 2026</div>
+        <div class="timeline-empty">Laufendes Quartal</div>
+      </div>
+      <div class="timeline-item empty">
+        <div class="timeline-q">Q3 2026</div>
+        <div class="timeline-empty">noch offen</div>
+      </div>
+      <div class="timeline-item empty">
+        <div class="timeline-q">Q4 2026</div>
+        <div class="timeline-empty">noch offen</div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- BLOCK 9: LIVE-AUSBLICK Q2 -->
+  <div class="block">
+    <div class="block-label">Live</div>
+    <div class="block-title">Wo stehst du aktuell (Q2 2026)?</div>
+    <div class="live-card">
+      <div class="live-status">Stand: 28.04.2026</div>
+      <div class="live-placeholder">
+        Die Live-Zahlen fürs laufende Quartal werden automatisch aktualisiert, sobald die Datenquelle verbunden ist.
+        <br><br>
+        Geplant: Umsatz / 60min, Zufriedenheit und aktuelle Projektion der Q2-Stufe — immer auf dem Stand von heute.
+      </div>
+    </div>
+  </div>
+  
+  <div class="footer">
+    Vacura · PM-Gehaltsmodell · Stand Q1 2026<br>
+    <a href="#top">↑ Nach oben</a>
+  </div>
+  
+</div>
+</body>
+</html>
