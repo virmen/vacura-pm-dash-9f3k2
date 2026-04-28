@@ -1126,34 +1126,35 @@ def compute_live_kpis(bundle_standorte, today=None):
                 pkv_count += 1
     pkv_quote = pkv_count / total_count * 100 if total_count else None
     
-    # 4) KRANKHEIT: aus Abwesenheiten Q-bisher, hochgerechnet
+    # 4) KRANKHEIT: trailing 90 Kalendertage, hochgerechnet aufs Jahr
+    # — rolling, damit der Wert beim Quartalswechsel nicht abrupt zurückspringt
+    #   und Spitzenmonate (z.B. Februar-Welle) im Mess-Fenster bleiben
+    from datetime import timedelta as _td
+    from datetime import date as _dt
+    krank_start = today - _td(days=90)
     abw = _fetch_all('mwcnx74etcl1frq')
     krank_stunden = 0.0
-    from datetime import timedelta as _td
     for a in abw:
         if a.get('deleted_at'): continue
         if a.get('art') not in ('krank','krankheit_kind'): continue
         if a.get('mitarbeiter_id') not in th_ids: continue
-        from datetime import date as _dt
         try:
             von = _dt.fromisoformat(a['von'][:10])
             bis = _dt.fromisoformat(a['bis'][:10])
         except: continue
-        day = max(von, q_start); end_day = min(bis, today)
+        day = max(von, krank_start); end_day = min(bis, today)
         while day <= end_day:
             if day.weekday() < 5:
                 # Hours für Standard-TH (grob 8h, vereinfacht)
                 krank_stunden += 8.0
             day += _td(days=1)
-    # Hochrechnung: wenn krank_stunden bisher → Anteil an Verfügbar → × 230 Arbeitstage
-    days_q_bisher = (today - q_start).days + 1
-    # Anzahl Werktage Q-bisher
-    werktage_q_bisher = 0
-    d = q_start
+    # Werktage im 90-Tage-Fenster
+    werktage_fenster = 0
+    d = krank_start
     while d <= today:
-        if d.weekday() < 5: werktage_q_bisher += 1
+        if d.weekday() < 5: werktage_fenster += 1
         d += _td(days=1)
-    krank_tage_bundle_jahr = (krank_stunden / 8) * (230 / werktage_q_bisher) if werktage_q_bisher else 0
+    krank_tage_bundle_jahr = (krank_stunden / 8) * (230 / werktage_fenster) if werktage_fenster else 0
     anzahl_th = len(bundle_th)
     krank_tage_pro_th_jahr = krank_tage_bundle_jahr / anzahl_th if anzahl_th else 0
     
@@ -1165,7 +1166,7 @@ def compute_live_kpis(bundle_standorte, today=None):
         'krank_tage_pro_th_jahr': krank_tage_pro_th_jahr,
         'q_start': q_start,
         'today': today,
-        'werktage_q_bisher': werktage_q_bisher,
+        'werktage_fenster': werktage_fenster,
     }
 
 def level_auslastung(val):
@@ -1416,16 +1417,19 @@ def render_html(pm):
                   <span class="weg-chip-range">{k_text}</span>
                 </div>
               </div>
-              <div class="live-kpi-note">Q2 2026 bisher, aufs Jahr hochgerechnet</div>
+              <div class="live-kpi-note">letzte 90 Tage, aufs Jahr hochgerechnet</div>
             </div>'''
 
             aktueller_stand_html = f'''
-            <div class="live-kpi-card">
-              <div class="live-kpi-header">
-                <div class="live-kpi-title">Dein aktueller Stand</div>
-                <div class="live-kpi-date">Stand: {today_str}</div>
+            <div class="block">
+              <div class="block-label">Live</div>
+              <div class="block-title">Wo stehst du aktuell (Q2 2026)?</div>
+              <div class="live-kpi-card">
+                <div class="live-kpi-header">
+                  <div class="live-kpi-date">Stand: {today_str}</div>
+                </div>
+                {rows_html}
               </div>
-              {rows_html}
             </div>
             '''
 
@@ -1460,7 +1464,6 @@ def render_html(pm):
           <div class="block-label">Konkrete Wege</div>
           <div class="block-title">Optionen um Stufe {next_s_obj['n']} zu erreichen</div>
           <p class="block-intro">Jeder Weg ist eine mögliche Kombination aus Auslastung, PKV-Quote und Krankenstand. Schon eine dieser Kombinationen reicht.</p>
-          {aktueller_stand_html}
           {wege_content}
           {wege_legende}
         </div>
@@ -1594,6 +1597,8 @@ def render_html(pm):
   
   {gap_block}
 
+  {aktueller_stand_html}
+
   {wege_block_html}
 
   <!-- BLOCK 7: HEBEL -->
@@ -1647,20 +1652,6 @@ def render_html(pm):
       <div class="timeline-item empty">
         <div class="timeline-q">Q4 2026</div>
         <div class="timeline-empty">noch offen</div>
-      </div>
-    </div>
-  </div>
-  
-  <!-- BLOCK 9: LIVE-AUSBLICK Q2 -->
-  <div class="block">
-    <div class="block-label">Live</div>
-    <div class="block-title">Wo stehst du aktuell (Q2 2026)?</div>
-    <div class="live-card">
-      <div class="live-status">Stand: {datetime.now().strftime("%d.%m.%Y")}</div>
-      <div class="live-placeholder">
-        Die Live-Zahlen fürs laufende Quartal werden automatisch aktualisiert, sobald die Datenquelle verbunden ist.
-        <br><br>
-        Geplant: Umsatz / 60min, Zufriedenheit und aktuelle Projektion der Q2-Stufe — immer auf dem Stand von heute.
       </div>
     </div>
   </div>
