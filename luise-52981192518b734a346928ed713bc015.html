@@ -783,9 +783,9 @@ body {
     <span class="topbar-name">Vacura · Gehalts-Dashboard</span>
     <span class="topbar-quartal">Q1 2026</span>
   </div>
-  
+
   <h1 class="page-title">Hallo Luise.</h1>
-  <p class="page-subtitle">Dein Stand nach Q1 2026 und was das für Q2 bedeutet.</p>
+  <p class="page-subtitle">Hier siehst du, wo du stehst und wie du auf die nächste Stufe kommst.</p>
   
   <!-- BLOCK 1: HERO -->
   <div class="block">
@@ -816,7 +816,7 @@ body {
     <div class="block-title">Wie setzt sich dein Gehalt zusammen?</div>
     <div class="breakdown-card">
       <div class="breakdown-formula">
-        <strong>Sockel</strong> + <strong>Bundle-Zulage</strong> = <strong>Basis-Gehalt</strong>, davon <strong>+0%</strong> Stufen-Zulage
+        <strong>Sockel</strong> + <strong>Bundle-Zulage</strong> = <strong>Basis-Gehalt</strong>, davon <strong>+0 %</strong> Stufen-Zulage
       </div>
       <div class="breakdown-bar">
         <div class="breakdown-seg sockel" style="flex: 93.9">Sockel</div>
@@ -829,21 +829,24 @@ body {
           <div class="breakdown-legend-val">40.000 €</div>
         </div>
         <div class="breakdown-legend-item bundle">
-          <div class="breakdown-legend-label">Bundle-Zulage (8 TH-Äqui)</div>
+          <div class="breakdown-legend-label">Bundle-Zulage (für 8 Anteile<sup>¹</sup>)</div>
           <div class="breakdown-legend-val">+2.600 €</div>
         </div>
         <div class="breakdown-legend-item stufe">
-          <div class="breakdown-legend-label">Variable Zulage (+0%)</div>
-          <div class="breakdown-legend-val">× 1.00</div>
+          <div class="breakdown-legend-label">Variable Zulage (+0 %)</div>
+          <div class="breakdown-legend-val">× 1,00</div>
         </div>
       </div>
       <div class="breakdown-result">
         <span class="breakdown-result-label">→ Jahresgehalt (bei 40 h/Woche)</span>
         <span class="breakdown-result-val">42.600 €</span>
       </div>
+      <p style="font-size:11px;color:var(--muted);margin-top:14px;line-height:1.5;">
+        <sup>¹</sup> „Anteile" = anteilige Bundle-Größe für deine Zulage — gewichtet auf deine Wochenstunden und deinen Anteil am Bundle-Team.
+      </p>
     </div>
   </div>
-  
+
   <!-- BLOCK 3: WARUM DIESE STUFE -->
   <div class="block">
     <div class="block-label">Einordnung</div>
@@ -854,29 +857,32 @@ body {
         <div class="kpi-label">Dein Umsatz pro Therapie-Stunde</div>
         <div class="kpi-value ok">66,92 <span class="kpi-unit">€/h</span></div>
         <div class="kpi-schwelle">Schwelle Stufe 1: <strong>61,17 €/h</strong> · Stufe 2: 66,54 €/h</div>
-        <div class="kpi-bar"><div class="kpi-bar-fill over" style="width: 100%"></div></div>
+        <div class="kpi-bar-caption" style="font-size:11px;margin-top:8px;"><span style="color:var(--green);font-weight:700;">✓ über Schwelle Stufe 2</span></div><div class="kpi-bar"><div class="kpi-bar-fill over" style="width:100%"></div></div>
       </div>
       <div class="kpi-card">
         <div class="kpi-label">Team-Zufriedenheit</div>
-        <div class="kpi-value ok">3.4 <span class="kpi-unit">/ 10</span></div>
-        <div class="kpi-schwelle">Schwelle Stufe 1: <strong>5.0</strong> · Stufe 2: 6.0</div>
-        <div class="kpi-bar"><div class="kpi-bar-fill under" style="width: 57%"></div></div>
+        <div class="kpi-value ok">3,4 <span class="kpi-unit">/ 10</span></div>
+        <div class="kpi-schwelle">Schwelle Stufe 1: <strong>5,0</strong> · Stufe 2: 6,0</div>
+        <div class="kpi-bar-caption" style="font-size:11px;margin-top:8px;"><span style="color:var(--orange);font-weight:700;">✗ Schwelle Stufe 1 nicht erreicht</span></div><div class="kpi-bar"><div class="kpi-bar-fill under" style="width:0%"></div></div>
         <div class="zufr-breakdown">
-          <div class="zufr-breakdown-title">So setzt sich der Score zusammen</div>
+          <div class="zufr-breakdown-title">Zusammensetzung (gewichtete Summe der drei Dimensionen)</div>
           <div class="zufr-sub">
             <span class="zufr-sub-label">Rücken freihalten</span>
             <span class="zufr-sub-bar"><span class="zufr-sub-fill" style="width:85%"></span></span>
-            <span class="zufr-sub-val">8.5 <small>× 20 %</small></span>
+            <span class="zufr-sub-val">8,5 <small>· Gewicht 20 %</small></span>
           </div>
           <div class="zufr-sub">
             <span class="zufr-sub-label">Kommunikation</span>
             <span class="zufr-sub-bar"><span class="zufr-sub-fill" style="width:87%"></span></span>
-            <span class="zufr-sub-val">8.7 <small>× 20 %</small></span>
+            <span class="zufr-sub-val">8,7 <small>· Gewicht 20 %</small></span>
           </div>
           <div class="zufr-sub">
             <span class="zufr-sub-label">Weiterempfehlung (eNPS)</span>
             <span class="zufr-sub-bar"><span class="zufr-sub-fill" style="width:0%"></span></span>
-            <span class="zufr-sub-val">0.0 <small>× 60 %</small></span>
+            <span class="zufr-sub-val">0,0 <small>· Gewicht 60 %</small></span>
+          </div>
+          <div class="zufr-formel" style="font-size:11px;color:var(--muted);margin-top:10px;padding-top:8px;border-top:1px dashed var(--line);">
+            Score = 0,2 × 8,5 + 0,2 × 8,7 + 0,6 × 0,0 = <strong>3,4</strong>
           </div>
         </div>
       </div>
@@ -892,98 +898,43 @@ body {
         <div class="stufe-chip current">
           <div class="stufe-chip-num">★ Deine Stufe</div>
           <div class="stufe-chip-name">1</div>
-          <div class="stufe-chip-detail">€/h ≥ 61,17<br>Zufriedenheit ≥ 5.0<br>+0% Zulage</div>
+          <div class="stufe-chip-detail">€/h ≥ 61,17<br>Zufriedenheit ≥ 5,0<br>+0 % Zulage</div>
         </div>
         <div class="stufe-chip next">
           <div class="stufe-chip-num">Nächste Stufe</div>
           <div class="stufe-chip-name">2</div>
-          <div class="stufe-chip-detail">€/h ≥ 66,54<br>Zufriedenheit ≥ 6.0<br>+11% Zulage</div>
+          <div class="stufe-chip-detail">€/h ≥ 66,54<br>Zufriedenheit ≥ 6,0<br>+11 % Zulage</div>
         </div>
         <div class="stufe-chip ">
           <div class="stufe-chip-num">Stufe</div>
           <div class="stufe-chip-name">3</div>
-          <div class="stufe-chip-detail">€/h ≥ 72,64<br>Zufriedenheit ≥ 7.0<br>+22% Zulage</div>
+          <div class="stufe-chip-detail">€/h ≥ 72,64<br>Zufriedenheit ≥ 7,0<br>+22 % Zulage</div>
         </div>
         <div class="stufe-chip ">
           <div class="stufe-chip-num">Stufe</div>
           <div class="stufe-chip-name">4</div>
-          <div class="stufe-chip-detail">€/h ≥ 77,28<br>Zufriedenheit ≥ 8.0<br>+33% Zulage</div>
+          <div class="stufe-chip-detail">€/h ≥ 77,28<br>Zufriedenheit ≥ 8,0<br>+33 % Zulage</div>
         </div>
         <div class="stufe-chip ">
           <div class="stufe-chip-num">Stufe</div>
           <div class="stufe-chip-name">5</div>
-          <div class="stufe-chip-detail">€/h ≥ 84,11<br>Zufriedenheit ≥ 8.5<br>+44% Zulage</div>
+          <div class="stufe-chip-detail">€/h ≥ 84,11<br>Zufriedenheit ≥ 8,5<br>+44 % Zulage</div>
         </div>
         <div class="stufe-chip ">
           <div class="stufe-chip-num">Stufe</div>
           <div class="stufe-chip-name">6</div>
-          <div class="stufe-chip-detail">€/h ≥ 89,48<br>Zufriedenheit ≥ 8.5<br>+55% Zulage</div>
+          <div class="stufe-chip-detail">€/h ≥ 89,48<br>Zufriedenheit ≥ 8,5<br>+55 % Zulage</div>
         </div>
     </div>
   </div>
   
-  
-        <div class="block">
-          <div class="block-label">Ausblick</div>
-          <div class="block-title">Was bringt dir Stufe 2?</div>
-          <div class="kpi-grid">
-            <div class="kpi-card">
-              <div class="kpi-label">Monatsgehalt bei Stufe 2</div>
-              <div class="kpi-value good">3.940 <span class="kpi-unit">€</span></div>
-              <div class="kpi-schwelle">Δ zum jetzigen Gehalt: <strong>+390 € / Monat</strong></div>
-            </div>
-            <div class="kpi-card">
-              <div class="kpi-label">Jahresgehalt bei Stufe 2</div>
-              <div class="kpi-value good">47.286 <span class="kpi-unit">€</span></div>
-              <div class="kpi-schwelle">Δ pro Jahr: <strong>+4.686 €</strong></div>
-            </div>
-          </div>
-        </div>
-        
-  
-  
-        <div class="block">
-          <div class="block-label">Weg zur nächsten Stufe</div>
-          <div class="block-title">Wie kommst du auf Stufe 2?</div>
-          <p class="block-intro">Für Stufe 2 müssen <strong>beide</strong> Bedingungen erfüllt sein — Umsatz <strong>und</strong> Team-Zufriedenheit.</p>
-          <div class="gap-card">
-            
-            <div class="gap-row done">
-              <div class="gap-row-icon">✓</div>
-              <div class="gap-row-content">
-                <div class="gap-row-title">Umsatz pro Therapie-Stunde — erreicht</div>
-                <div class="gap-row-detail">Du hast 66,92 €/h, Schwelle für Stufe 2: 66,54 €/h</div>
-              </div>
-            </div>
-            
-            <div class="gap-row gap">
-              <div class="gap-row-icon">↗</div>
-              <div class="gap-row-content">
-                <div class="gap-row-title">Höhere Team-Zufriedenheit</div>
-                <div class="gap-row-kpis">
-                  <div class="gap-mini">
-                    <div class="gap-mini-label">Fehlt</div>
-                    <div class="gap-mini-val">+2.6 Punkte</div>
-                  </div>
-                  <div class="gap-mini">
-                    <div class="gap-mini-label">Ziel</div>
-                    <div class="gap-mini-val">6.0 / 10</div>
-                  </div>
-                </div>
-                <div class="gap-bar"><div class="gap-bar-fill" style="width: 0%"></div></div>
-                <div class="gap-bar-caption">3.4 → 6.0</div>
-              </div>
-            </div>
-          </div>
-        </div>
-        
-
   
             <div class="block">
               <div class="block-label">Live</div>
               <div class="block-title">Wo stehst du aktuell (Q2 2026)?</div>
               <div class="live-kpi-card">
                 <div class="live-kpi-header">
+                  <div class="live-status">Live</div>
                   <div class="live-kpi-date">Stand: 29.04.2026</div>
                 </div>
                 
@@ -1005,7 +956,7 @@ body {
                   <span class="weg-chip-range">6 %</span>
                 </div>
               </div>
-              <div class="live-kpi-note">Q2 2026 bisher (1484 Termine)</div>
+              <div class="live-kpi-note">Q2 2026 bisher · Stichprobe: 1.513 Termine</div>
             </div>
             <div class="live-kpi-row">
               <div class="live-kpi-label">Krank-Tage/TH/Jahr</div>
@@ -1023,9 +974,31 @@ body {
 
   
         <div class="block">
+          <div class="block-label">Ausblick</div>
+          <div class="block-title">Was bringt dir Stufe 2?</div>
+          <div class="kpi-grid">
+            <div class="kpi-card">
+              <div class="kpi-label">Monatsgehalt bei Stufe 2</div>
+              <div class="kpi-value good">3.940 <span class="kpi-unit">€</span></div>
+              <div class="kpi-schwelle">Δ zum jetzigen Gehalt: <strong>+390 € / Monat</strong></div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-label">Jahresgehalt bei Stufe 2</div>
+              <div class="kpi-value good">47.286 <span class="kpi-unit">€</span></div>
+              <div class="kpi-schwelle">Δ pro Jahr: <strong>+4.686 €</strong></div>
+            </div>
+          </div>
+        </div>
+        
+
+  
+
+  
+        <div class="block">
           <div class="block-label">Konkrete Wege</div>
           <div class="block-title">Optionen um Stufe 2 zu erreichen</div>
-          <p class="block-intro">Jeder Weg ist eine mögliche Kombination aus Auslastung, PKV-Quote und Krankenstand. Schon eine dieser Kombinationen reicht.</p>
+          <p class="block-intro">Jeder Weg zeigt eine <strong>realistische</strong> Kombination — schon eine davon reicht für Stufe 2. PKV-Quote ist überall „gering" gesetzt, weil das eurem aktuellen Stand entspricht; eine höhere PKV-Quote macht jeden Weg leichter (siehe Hebel oben).</p>
+          <p class="block-intro" style="margin-top:-8px;">Voraussetzung in allen Wegen: Team-Zufriedenheit ≥ 6,0 — <span style="color:var(--orange);font-weight:700;">noch +2,6 Pkt fehlen (3,4 → 6,0)</span>.</p>
           <div class="weg-text">Solide Auslastung, Team läuft stabil.</div>
           
         <div class="weg-legende">
@@ -1038,10 +1011,10 @@ body {
           </div>
           <div class="weg-legende-row">
             <span class="weg-legende-kpi">PKV-Quote</span>
-            <span class="weg-legende-item low">gering <span class="rg">8–18 %</span></span>
-            <span class="weg-legende-item mid">mittel <span class="rg">19–29 %</span></span>
-            <span class="weg-legende-item high">hoch <span class="rg">30–39 %</span></span>
-            <span class="weg-legende-item vhigh">sehr hoch <span class="rg">40 %+</span></span>
+            <span class="weg-legende-item low">gering <span class="rg">bis 10 %</span></span>
+            <span class="weg-legende-item mid">mittel <span class="rg">11–20 %</span></span>
+            <span class="weg-legende-item high">hoch <span class="rg">21–30 %</span></span>
+            <span class="weg-legende-item vhigh">sehr hoch <span class="rg">über 30 %</span></span>
           </div>
           <div class="weg-legende-row">
             <span class="weg-legende-kpi">Krankheit</span>
@@ -1053,8 +1026,6 @@ body {
         
         </div>
         
-
-  
 
   <!-- BLOCK 8: TIMELINE -->
   <div class="block">
@@ -1070,17 +1041,9 @@ body {
         <div class="timeline-q">Q2 2026</div>
         <div class="timeline-empty">Laufendes Quartal</div>
       </div>
-      <div class="timeline-item empty">
-        <div class="timeline-q">Q3 2026</div>
-        <div class="timeline-empty">noch offen</div>
-      </div>
-      <div class="timeline-item empty">
-        <div class="timeline-q">Q4 2026</div>
-        <div class="timeline-empty">noch offen</div>
-      </div>
     </div>
   </div>
-  
+
   <div class="footer">
     Vacura · PM-Gehaltsmodell · Stand Q1 2026<br>
     <a href="#top">↑ Nach oben</a>
