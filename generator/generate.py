@@ -255,8 +255,47 @@ def delta_naechste_stufe(pm_data):
         'next_jahresgehalt': next_jahr,
         'next_monatsgehalt': next_monat,
         # Progress-Percent: wie weit im Gap
-        'progress_pct': max(0, min(100, (pm_data['eur60'] - STUFEN[tats-1]['eur60']) / 
+        'progress_pct': max(0, min(100, (pm_data['eur60'] - STUFEN[tats-1]['eur60']) /
                                         (next_s['eur60'] - STUFEN[tats-1]['eur60']) * 100)),
+    }
+
+def hebel_optionen(pm_data, gap_data, live_kpis):
+    """Konkrete Hebel-Werte um die nächste Stufe zu erreichen.
+
+    Faktoren (Standard-Approximation):
+      +1 %-Pkt PKV-Quote     ≈ +0,7 % Umsatz
+      +1 Termin/Wo (Bundle)  ≈ +0,3 % Umsatz
+      −1 %-Pkt Krankenstand  ≈ +0,5 % Umsatz   (1 %-Pkt ≈ 2,3 Tage/TH/Jahr bei 230 Werktagen)
+    """
+    if not gap_data:
+        return None
+    delta_pct = gap_data['delta_eur60'] / pm_data['eur60'] * 100
+    if delta_pct <= 0:
+        return None
+
+    F_PKV, F_TERMIN, F_KRANK = 0.7, 0.3, 0.5
+    d_pkv_pkt   = delta_pct / F_PKV
+    d_termin_wo = delta_pct / F_TERMIN
+    d_krank_pkt = delta_pct / F_KRANK
+    d_krank_tage = d_krank_pkt * 2.3
+
+    pkv_now    = (live_kpis or {}).get('pkv_quote') or 0
+    krank_now  = (live_kpis or {}).get('krank_tage_pro_th_jahr') or 0
+    auslast_now = (live_kpis or {}).get('auslastung') or 0
+
+    # Plausibilität
+    pkv_realist    = d_pkv_pkt <= 15
+    termin_realist = d_termin_wo <= 25 and auslast_now < 95
+    krank_realist  = d_krank_tage <= max(krank_now - 5, 3)
+
+    return {
+        'delta_pct': delta_pct,
+        'd_pkv_pkt': d_pkv_pkt, 'pkv_now': pkv_now, 'pkv_neu': pkv_now + d_pkv_pkt,
+        'd_termin_wo': d_termin_wo,
+        'd_krank_tage': d_krank_tage, 'krank_now': krank_now, 'krank_neu': max(krank_now - d_krank_tage, 0),
+        'pkv_realist': pkv_realist,
+        'termin_realist': termin_realist,
+        'krank_realist': krank_realist,
     }
 
 # ==================== HTML TEMPLATE ====================
@@ -668,6 +707,28 @@ body {
   white-space: nowrap;
   text-align: center;
 }
+.hebel-effect.unrealistic {
+  color: var(--red);
+  background: var(--red-light);
+}
+.hebel-tag {
+  display: inline-block;
+  font-size: 11px; font-weight: 600;
+  padding: 2px 8px; border-radius: 999px;
+  margin-left: 6px;
+  letter-spacing: 0.02em;
+}
+.hebel-tag.realistic { background: var(--green-light); color: var(--green); }
+.hebel-tag.unrealistic { background: var(--red-light); color: var(--red); }
+.hebel-from-to {
+  font-size: 12px; color: var(--ink-soft);
+  margin-top: 4px;
+}
+.hebel-headline {
+  font-size: 15px; line-height: 1.55;
+  margin-bottom: 14px; color: var(--ink-soft);
+}
+.hebel-headline strong { color: var(--ink); }
 .hebel-note {
   font-size: 12px; color: var(--muted);
   margin-top: 10px; font-style: italic;
@@ -1201,7 +1262,8 @@ def kpi_level_label(kpi, level):
 
 def render_html(pm):
     d = delta_naechste_stufe(pm)
-    
+    live_kpis = None  # gefüllt nur wenn nicht Stufe 6 (siehe unten)
+
     # Hero
     hero_stufe_text = f"Stufe {pm['tats_stufe']}"
     
@@ -1353,7 +1415,6 @@ def render_html(pm):
         '''
 
         # Live-KPIs "Dein aktueller Stand"
-        live_kpis = None
         aktueller_stand_html = ''
         try:
             bundle_std_list = [s.strip().lower().replace(' ', '_') for s in pm.get('bundle_standorte','').split(',')]
@@ -1468,6 +1529,59 @@ def render_html(pm):
           {wege_legende}
         </div>
         '''
+
+    # Block 7: Hebel — konkrete Werte pro PM
+    hebel_block_html = ''
+    h = hebel_optionen(pm, d, live_kpis)
+    if h:
+        def _tag(realist):
+            return f'<span class="hebel-tag {"realistic" if realist else "unrealistic"}">{"realistisch" if realist else "ambitioniert"}</span>'
+        def _eff_class(realist):
+            return '' if realist else ' unrealistic'
+        pkv_from_to = f'von {h["pkv_now"]:.0f} % auf {h["pkv_neu"]:.0f} %' if h["pkv_now"] else f'auf ca. {h["pkv_neu"]:.0f} %'
+        if h["krank_now"] and h["d_krank_tage"] > h["krank_now"]:
+            krank_from_to = f'aktuell nur {h["krank_now"]:.0f} Tg./TH/Jahr Spielraum — alleine nicht möglich'
+        elif h["krank_now"]:
+            krank_from_to = f'von {h["krank_now"]:.0f} auf {h["krank_neu"]:.0f} Tg./TH/Jahr'
+        else:
+            krank_from_to = f'auf ca. {h["krank_neu"]:.0f} Tg./TH/Jahr'
+        hebel_block_html = f'''
+  <!-- BLOCK 7: HEBEL (dynamisch) -->
+  <div class="block">
+    <div class="block-label">Aktion</div>
+    <div class="block-title">Was musst du dafür tun?</div>
+    <p class="hebel-headline">
+      Um Stufe {next_s_obj['n']} zu erreichen, brauchst du <strong>+{h["delta_pct"]:.1f} % Bundle-Umsatz</strong>.
+      Hier sind drei Hebel — jeder einzeln würde reichen, eine Kombination ist meist realistischer.
+    </p>
+    <div class="hebel-grid">
+      <div class="hebel-item">
+        <div class="hebel-content">
+          <div class="hebel-name">Höherer PKV-Anteil {_tag(h["pkv_realist"])}</div>
+          <div class="hebel-desc">Privatpatienten aktiv ansprechen. PKV zahlt 1,7× den GKV-Tarif.</div>
+          <div class="hebel-from-to">{pkv_from_to}</div>
+        </div>
+        <div class="hebel-effect{_eff_class(h["pkv_realist"])}">+{h["d_pkv_pkt"]:.0f} %-Pkt PKV</div>
+      </div>
+      <div class="hebel-item">
+        <div class="hebel-content">
+          <div class="hebel-name">Mehr Termine pro Woche {_tag(h["termin_realist"])}</div>
+          <div class="hebel-desc">Auslastung erhöhen, neue Patienten gewinnen, Slots besser nutzen.</div>
+          <div class="hebel-from-to">Bundle-weit, zusätzlich zu heute</div>
+        </div>
+        <div class="hebel-effect{_eff_class(h["termin_realist"])}">+{h["d_termin_wo"]:.0f} Termine/Wo</div>
+      </div>
+      <div class="hebel-item">
+        <div class="hebel-content">
+          <div class="hebel-name">Krankenstand senken {_tag(h["krank_realist"])}</div>
+          <div class="hebel-desc">Team-Gesundheit, gute Urlaubsplanung, keine Ansteckungsketten.</div>
+          <div class="hebel-from-to">{krank_from_to}</div>
+        </div>
+        <div class="hebel-effect{_eff_class(h["krank_realist"])}">−{h["d_krank_tage"]:.0f} Tage/TH/Jahr</div>
+      </div>
+    </div>
+    <p class="hebel-note">Näherungen — Faktoren: PKV 1,7×, 230 Werktage/Jahr. Kombinationen sind die Regel, nicht die Ausnahme.</p>
+  </div>'''
 
     html_str = f'''<!DOCTYPE html>
 <html lang="de">
@@ -1601,36 +1715,8 @@ def render_html(pm):
 
   {wege_block_html}
 
-  <!-- BLOCK 7: HEBEL -->
-  <div class="block">
-    <div class="block-label">Aktion</div>
-    <div class="block-title">Wie kommst du weiter?</div>
-    <div class="hebel-grid">
-      <div class="hebel-item">
-        <div class="hebel-content">
-          <div class="hebel-name">Mehr Termine pro Woche</div>
-          <div class="hebel-desc">Auslastung erhöhen, neue Patienten gewinnen, Slots besser nutzen.</div>
-        </div>
-        <div class="hebel-effect">+10 Termine/Wo<br>≈ +3 % Umsatz</div>
-      </div>
-      <div class="hebel-item">
-        <div class="hebel-content">
-          <div class="hebel-name">Höherer PKV-Anteil</div>
-          <div class="hebel-desc">Privatpatienten aktiv ansprechen. PKV zahlt 1,7× den GKV-Tarif.</div>
-        </div>
-        <div class="hebel-effect">+1 %-Pkt PKV<br>≈ +0,7 % Umsatz</div>
-      </div>
-      <div class="hebel-item">
-        <div class="hebel-content">
-          <div class="hebel-name">Krankenstand senken</div>
-          <div class="hebel-desc">Team-Gesundheit, gute Urlaubsplanung, keine Ansteckungsketten.</div>
-        </div>
-        <div class="hebel-effect">−1 %-Pkt Krank<br>≈ +0,5 % Umsatz</div>
-      </div>
-    </div>
-    <p class="hebel-note">Orientierungswerte — keine exakten Prognosen.</p>
-  </div>
-  
+  {hebel_block_html}
+
   <!-- BLOCK 8: TIMELINE -->
   <div class="block">
     <div class="block-label">Verlauf</div>
