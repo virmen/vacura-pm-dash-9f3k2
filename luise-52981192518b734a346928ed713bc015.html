@@ -412,6 +412,28 @@ body {
   white-space: nowrap;
   text-align: center;
 }
+.hebel-effect.unrealistic {
+  color: var(--red);
+  background: var(--red-light);
+}
+.hebel-tag {
+  display: inline-block;
+  font-size: 11px; font-weight: 600;
+  padding: 2px 8px; border-radius: 999px;
+  margin-left: 6px;
+  letter-spacing: 0.02em;
+}
+.hebel-tag.realistic { background: var(--green-light); color: var(--green); }
+.hebel-tag.unrealistic { background: var(--red-light); color: var(--red); }
+.hebel-from-to {
+  font-size: 12px; color: var(--ink-soft);
+  margin-top: 4px;
+}
+.hebel-headline {
+  font-size: 15px; line-height: 1.55;
+  margin-bottom: 14px; color: var(--ink-soft);
+}
+.hebel-headline strong { color: var(--ink); }
 .hebel-note {
   font-size: 12px; color: var(--muted);
   margin-top: 10px; font-style: italic;
@@ -1033,36 +1055,8 @@ body {
         </div>
         
 
-  <!-- BLOCK 7: HEBEL -->
-  <div class="block">
-    <div class="block-label">Aktion</div>
-    <div class="block-title">Wie kommst du weiter?</div>
-    <div class="hebel-grid">
-      <div class="hebel-item">
-        <div class="hebel-content">
-          <div class="hebel-name">Mehr Termine pro Woche</div>
-          <div class="hebel-desc">Auslastung erhöhen, neue Patienten gewinnen, Slots besser nutzen.</div>
-        </div>
-        <div class="hebel-effect">+10 Termine/Wo<br>≈ +3 % Umsatz</div>
-      </div>
-      <div class="hebel-item">
-        <div class="hebel-content">
-          <div class="hebel-name">Höherer PKV-Anteil</div>
-          <div class="hebel-desc">Privatpatienten aktiv ansprechen. PKV zahlt 1,7× den GKV-Tarif.</div>
-        </div>
-        <div class="hebel-effect">+1 %-Pkt PKV<br>≈ +0,7 % Umsatz</div>
-      </div>
-      <div class="hebel-item">
-        <div class="hebel-content">
-          <div class="hebel-name">Krankenstand senken</div>
-          <div class="hebel-desc">Team-Gesundheit, gute Urlaubsplanung, keine Ansteckungsketten.</div>
-        </div>
-        <div class="hebel-effect">−1 %-Pkt Krank<br>≈ +0,5 % Umsatz</div>
-      </div>
-    </div>
-    <p class="hebel-note">Orientierungswerte — keine exakten Prognosen.</p>
-  </div>
   
+
   <!-- BLOCK 8: TIMELINE -->
   <div class="block">
     <div class="block-label">Verlauf</div>
