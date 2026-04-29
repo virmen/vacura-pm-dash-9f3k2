@@ -282,20 +282,31 @@ def hebel_optionen(pm_data, gap_data, live_kpis):
     pkv_now    = (live_kpis or {}).get('pkv_quote') or 0
     krank_now  = (live_kpis or {}).get('krank_tage_pro_th_jahr') or 0
     auslast_now = (live_kpis or {}).get('auslastung') or 0
+    anzahl_th  = (live_kpis or {}).get('auslastung_n_th') or 0
+    d_termin_pro_th = (d_termin_wo / anzahl_th) if anzahl_th else None
 
-    # Plausibilität
-    pkv_realist    = d_pkv_pkt <= 15
-    termin_realist = d_termin_wo <= 25 and auslast_now < 95
-    krank_realist  = d_krank_tage <= max(krank_now - 5, 3)
+    # 3-Stufen-Plausibilität: realistic | borderline | impossible
+    if d_pkv_pkt <= 15:    pkv_lvl = 'realistic'
+    elif d_pkv_pkt <= 25:  pkv_lvl = 'borderline'
+    else:                  pkv_lvl = 'impossible'
+
+    # Termine: pro-TH-Wert ist die natürliche Plausibilitäts-Einheit (>2 TH/Wo schwer ohne Auslastung-Reserve)
+    pth = d_termin_pro_th or d_termin_wo
+    if pth <= 1 and auslast_now < 92:    termin_lvl = 'realistic'
+    elif pth <= 2:                       termin_lvl = 'borderline'
+    else:                                termin_lvl = 'impossible'
+
+    if not krank_now or krank_now <= 0:  krank_lvl = 'impossible'
+    elif d_krank_tage <= krank_now * 0.5: krank_lvl = 'realistic'
+    elif d_krank_tage <= krank_now:      krank_lvl = 'borderline'
+    else:                                krank_lvl = 'impossible'
 
     return {
         'delta_pct': delta_pct,
         'd_pkv_pkt': d_pkv_pkt, 'pkv_now': pkv_now, 'pkv_neu': pkv_now + d_pkv_pkt,
-        'd_termin_wo': d_termin_wo,
+        'd_termin_wo': d_termin_wo, 'd_termin_pro_th': d_termin_pro_th, 'anzahl_th': anzahl_th,
         'd_krank_tage': d_krank_tage, 'krank_now': krank_now, 'krank_neu': max(krank_now - d_krank_tage, 0),
-        'pkv_realist': pkv_realist,
-        'termin_realist': termin_realist,
-        'krank_realist': krank_realist,
+        'pkv_lvl': pkv_lvl, 'termin_lvl': termin_lvl, 'krank_lvl': krank_lvl,
     }
 
 # ==================== HTML TEMPLATE ====================
@@ -707,10 +718,8 @@ body {
   white-space: nowrap;
   text-align: center;
 }
-.hebel-effect.unrealistic {
-  color: var(--red);
-  background: var(--red-light);
-}
+.hebel-effect.borderline { color: var(--orange); background: var(--orange-light); }
+.hebel-effect.impossible { color: var(--red); background: var(--red-light); }
 .hebel-tag {
   display: inline-block;
   font-size: 11px; font-weight: 600;
@@ -718,8 +727,9 @@ body {
   margin-left: 6px;
   letter-spacing: 0.02em;
 }
-.hebel-tag.realistic { background: var(--green-light); color: var(--green); }
-.hebel-tag.unrealistic { background: var(--red-light); color: var(--red); }
+.hebel-tag.realistic  { background: var(--green-light);  color: var(--green); }
+.hebel-tag.borderline { background: var(--orange-light); color: var(--orange); }
+.hebel-tag.impossible { background: var(--red-light);    color: var(--red); }
 .hebel-from-to {
   font-size: 12px; color: var(--ink-soft);
   margin-top: 4px;
@@ -1534,17 +1544,25 @@ def render_html(pm):
     hebel_block_html = ''
     h = hebel_optionen(pm, d, live_kpis)
     if h:
-        def _tag(realist):
-            return f'<span class="hebel-tag {"realistic" if realist else "unrealistic"}">{"realistisch" if realist else "ambitioniert"}</span>'
-        def _eff_class(realist):
-            return '' if realist else ' unrealistic'
+        TAG_LABEL = {'realistic':'realistisch', 'borderline':'ambitioniert', 'impossible':'alleine nicht möglich'}
+        def _tag(lvl): return f'<span class="hebel-tag {lvl}">{TAG_LABEL[lvl]}</span>'
+        def _eff(lvl): return '' if lvl == 'realistic' else f' {lvl}'
+
         pkv_from_to = f'von {h["pkv_now"]:.0f} % auf {h["pkv_neu"]:.0f} %' if h["pkv_now"] else f'auf ca. {h["pkv_neu"]:.0f} %'
+
+        # Termin: pro TH ergänzen wenn Bundle-Größe bekannt
+        if h["d_termin_pro_th"] is not None and h["anzahl_th"]:
+            termin_from_to = f'Bundle-weit · ≈ +{h["d_termin_pro_th"]:.1f} Termine/Wo pro TH ({h["anzahl_th"]} TH)'
+        else:
+            termin_from_to = 'Bundle-weit, zusätzlich zu heute'
+
         if h["krank_now"] and h["d_krank_tage"] > h["krank_now"]:
-            krank_from_to = f'aktuell nur {h["krank_now"]:.0f} Tg./TH/Jahr Spielraum — alleine nicht möglich'
+            krank_from_to = f'aktuell nur {h["krank_now"]:.0f} Tg./TH/Jahr — würde negative Krank-Tage bedeuten'
         elif h["krank_now"]:
             krank_from_to = f'von {h["krank_now"]:.0f} auf {h["krank_neu"]:.0f} Tg./TH/Jahr'
         else:
             krank_from_to = f'auf ca. {h["krank_neu"]:.0f} Tg./TH/Jahr'
+
         hebel_block_html = f'''
   <!-- BLOCK 7: HEBEL (dynamisch) -->
   <div class="block">
@@ -1552,32 +1570,32 @@ def render_html(pm):
     <div class="block-title">Was musst du dafür tun?</div>
     <p class="hebel-headline">
       Um Stufe {next_s_obj['n']} zu erreichen, brauchst du <strong>+{h["delta_pct"]:.1f} % Bundle-Umsatz</strong>.
-      Hier sind drei Hebel — jeder einzeln würde reichen, eine Kombination ist meist realistischer.
+      Hier sind drei Hebel — jeder einzeln würde reichen, eine Kombination ist meist realistischer (siehe Wege oben).
     </p>
     <div class="hebel-grid">
       <div class="hebel-item">
         <div class="hebel-content">
-          <div class="hebel-name">Höherer PKV-Anteil {_tag(h["pkv_realist"])}</div>
+          <div class="hebel-name">Höherer PKV-Anteil {_tag(h["pkv_lvl"])}</div>
           <div class="hebel-desc">Privatpatienten aktiv ansprechen. PKV zahlt 1,7× den GKV-Tarif.</div>
           <div class="hebel-from-to">{pkv_from_to}</div>
         </div>
-        <div class="hebel-effect{_eff_class(h["pkv_realist"])}">+{h["d_pkv_pkt"]:.0f} %-Pkt PKV</div>
+        <div class="hebel-effect{_eff(h["pkv_lvl"])}">+{h["d_pkv_pkt"]:.0f} %-Pkt PKV</div>
       </div>
       <div class="hebel-item">
         <div class="hebel-content">
-          <div class="hebel-name">Mehr Termine pro Woche {_tag(h["termin_realist"])}</div>
+          <div class="hebel-name">Mehr Termine pro Woche {_tag(h["termin_lvl"])}</div>
           <div class="hebel-desc">Auslastung erhöhen, neue Patienten gewinnen, Slots besser nutzen.</div>
-          <div class="hebel-from-to">Bundle-weit, zusätzlich zu heute</div>
+          <div class="hebel-from-to">{termin_from_to}</div>
         </div>
-        <div class="hebel-effect{_eff_class(h["termin_realist"])}">+{h["d_termin_wo"]:.0f} Termine/Wo</div>
+        <div class="hebel-effect{_eff(h["termin_lvl"])}">+{h["d_termin_wo"]:.0f} Termine/Wo</div>
       </div>
       <div class="hebel-item">
         <div class="hebel-content">
-          <div class="hebel-name">Krankenstand senken {_tag(h["krank_realist"])}</div>
+          <div class="hebel-name">Krankenstand senken {_tag(h["krank_lvl"])}</div>
           <div class="hebel-desc">Team-Gesundheit, gute Urlaubsplanung, keine Ansteckungsketten.</div>
           <div class="hebel-from-to">{krank_from_to}</div>
         </div>
-        <div class="hebel-effect{_eff_class(h["krank_realist"])}">−{h["d_krank_tage"]:.0f} Tage/TH/Jahr</div>
+        <div class="hebel-effect{_eff(h["krank_lvl"])}">−{h["d_krank_tage"]:.0f} Tage/TH/Jahr</div>
       </div>
     </div>
     <p class="hebel-note">Näherungen — Faktoren: PKV 1,7×, 230 Werktage/Jahr. Kombinationen sind die Regel, nicht die Ausnahme.</p>
