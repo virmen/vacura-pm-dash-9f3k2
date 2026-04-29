@@ -11,8 +11,8 @@ import openpyxl, os, sys, html, json
 from datetime import datetime, date
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-EXCEL = os.environ.get('EXCEL_PATH') or os.path.expanduser('~/Desktop/Claude/Github/pm-dashboards/PM_Gehaltsmodell_v18.xlsx')
-OUT_DIR = os.environ.get('OUT_DIR') or os.path.expanduser('~/Desktop/Claude/Github/pm-dashboards/v2')
+EXCEL = os.environ.get('EXCEL_PATH') or os.path.expanduser('~/Code/Claude/Github/pm-dashboards/PM_Gehaltsmodell_v18.xlsx')
+OUT_DIR = os.environ.get('OUT_DIR') or os.path.expanduser('~/Code/Claude/Github/pm-dashboards/v2')
 
 # Stufen
 STUFEN = [
@@ -27,20 +27,22 @@ STUFEN = [
 # KPI-Level für Wege-Block
 KPI_LEVELS = {
     'Auslastung': {
+        'low':   {'text': 'niedrig',   'range': 'bis 84 %'},
         'mid':   {'text': 'mittel',    'range': '85–92 %'},
         'high':  {'text': 'hoch',      'range': '93–95 %'},
         'vhigh': {'text': 'sehr hoch', 'range': '96 %+'},
     },
     'PKV-Quote': {
-        'low':   {'text': 'gering',    'range': '8–18 %'},
-        'mid':   {'text': 'mittel',    'range': '19–29 %'},
-        'high':  {'text': 'hoch',      'range': '30–39 %'},
-        'vhigh': {'text': 'sehr hoch', 'range': '40 %+'},
+        'low':   {'text': 'gering',    'range': 'bis 10 %'},
+        'mid':   {'text': 'mittel',    'range': '11–20 %'},
+        'high':  {'text': 'hoch',      'range': '21–30 %'},
+        'vhigh': {'text': 'sehr hoch', 'range': 'über 30 %'},
     },
     'Krankheit': {
-        'low':   {'text': 'wenig',     'range': '10–15 Tg./a'},
+        'low':   {'text': 'wenig',     'range': 'bis 15 Tg./a'},
         'mid':   {'text': 'normal',    'range': '16–20 Tg./a'},
         'high':  {'text': 'höher',     'range': '21–25 Tg./a'},
+        'vhigh': {'text': 'sehr viel', 'range': 'über 25 Tg./a'},
     },
 }
 
@@ -290,11 +292,12 @@ def hebel_optionen(pm_data, gap_data, live_kpis):
     elif d_pkv_pkt <= 25:  pkv_lvl = 'borderline'
     else:                  pkv_lvl = 'impossible'
 
-    # Termine: pro-TH-Wert ist die natürliche Plausibilitäts-Einheit (>2 TH/Wo schwer ohne Auslastung-Reserve)
+    # Termine: pro-TH-Wert ist die natürliche Plausibilitäts-Einheit.
+    # Auch bei voller Auslastung kann der Hebel ziehen — über PKV-Fokus bei rotierenden Patienten.
     pth = d_termin_pro_th or d_termin_wo
-    if pth <= 1 and auslast_now < 92:    termin_lvl = 'realistic'
-    elif pth <= 2:                       termin_lvl = 'borderline'
-    else:                                termin_lvl = 'impossible'
+    if pth <= 1:    termin_lvl = 'realistic'
+    elif pth <= 2:  termin_lvl = 'borderline'
+    else:           termin_lvl = 'impossible'
 
     if not krank_now or krank_now <= 0:  krank_lvl = 'impossible'
     elif d_krank_tage <= krank_now * 0.5: krank_lvl = 'realistic'
@@ -1086,6 +1089,43 @@ def fmt_eur(n, decimals=0):
     if n is None: return '—'
     return f"{n:,.{decimals}f}".replace(',', '§').replace('.', ',').replace('§', '.')
 
+def fmt_de(n, decimals=1):
+    """Deutsche Dezimal-Formatierung (Komma statt Punkt) für Zahlen ohne €."""
+    if n is None: return '—'
+    return f"{n:,.{decimals}f}".replace(',', '§').replace('.', ',').replace('§', '.')
+
+def quartal_label(d):
+    """'Q2 2026' für ein date-Objekt."""
+    return f"Q{(d.month - 1) // 3 + 1} {d.year}"
+
+def vorquartal_label(d):
+    """Letztes abgeschlossenes Quartal vor d, z.B. 'Q1 2026' wenn d in Q2 2026."""
+    q = (d.month - 1) // 3 + 1
+    return f"Q{q - 1} {d.year}" if q > 1 else f"Q4 {d.year - 1}"
+
+def _kpi_bar_render(val, curr_threshold, next_threshold, curr_n, next_n, has_next):
+    """Bar mit klar getrennter Caption: '✓ Stufe X erreicht · Y % Richtung Stufe Z'.
+    Bar-Füllung = Progress zwischen aktueller und nächster Schwelle (0–100 %)."""
+    if not has_next:
+        cap = '<span style="color:var(--green);font-weight:700;">✓ Höchste Stufe erreicht</span>'
+        return f'<div class="kpi-bar-caption" style="font-size:11px;margin-top:8px;">{cap}</div><div class="kpi-bar"><div class="kpi-bar-fill over" style="width:100%"></div></div>'
+    if val >= next_threshold:
+        cap = f'<span style="color:var(--green);font-weight:700;">✓ über Schwelle Stufe {next_n}</span>'
+        return f'<div class="kpi-bar-caption" style="font-size:11px;margin-top:8px;">{cap}</div><div class="kpi-bar"><div class="kpi-bar-fill over" style="width:100%"></div></div>'
+    if val >= curr_threshold:
+        denom = next_threshold - curr_threshold
+        progress = ((val - curr_threshold) / denom * 100) if denom > 0 else 100
+        cap = f'<span style="color:var(--green);font-weight:700;">✓ Stufe {curr_n} erreicht</span> · {progress:.0f} % Richtung Stufe {next_n}'
+        return f'<div class="kpi-bar-caption" style="font-size:11px;margin-top:8px;color:var(--ink-soft);">{cap}</div><div class="kpi-bar"><div class="kpi-bar-fill" style="width:{progress:.0f}%"></div></div>'
+    cap = f'<span style="color:var(--orange);font-weight:700;">✗ Schwelle Stufe {curr_n} nicht erreicht</span>'
+    return f'<div class="kpi-bar-caption" style="font-size:11px;margin-top:8px;">{cap}</div><div class="kpi-bar"><div class="kpi-bar-fill under" style="width:0%"></div></div>'
+
+def _eur_bar_html(pm, curr_s, next_s, d):
+    return _kpi_bar_render(pm['eur60'], curr_s['eur60'], next_s['eur60'], curr_s['n'], next_s['n'], bool(d))
+
+def _zufr_bar_html(pm, curr_s, next_s, d):
+    return _kpi_bar_render(pm['zufr'], curr_s['zufr'], next_s['zufr'], curr_s['n'], next_s['n'], bool(d))
+
 
 
 # ============ LIVE KPIs ============
@@ -1249,17 +1289,18 @@ def level_auslastung(val):
 
 def level_pkv(val):
     if val is None: return None
-    if val < 19: return 'low'
-    if val < 30: return 'mid'
-    if val < 40: return 'high'
+    if val <= 10: return 'low'
+    if val <= 20: return 'mid'
+    if val <= 30: return 'high'
     return 'vhigh'
 
 def level_krank(val):
-    """Krank-Tage/TH/Jahr: 10-15=low, 16-20=mid, 21-25=high"""
+    """Krank-Tage/TH/Jahr: ≤15=low, 16–20=mid, 21–25=high, >25=vhigh"""
     if val is None: return None
-    if val < 16: return 'low'
-    if val < 21: return 'mid'
-    return 'high'
+    if val <= 15: return 'low'
+    if val <= 20: return 'mid'
+    if val <= 25: return 'high'
+    return 'vhigh'
 
 def kpi_level_label(kpi, level):
     if kpi == 'Auslastung':
@@ -1271,7 +1312,14 @@ def kpi_level_label(kpi, level):
     return '—'
 
 def render_html(pm):
+    from datetime import date as _date
+    today = _date.today()
+    q_aktuell = quartal_label(today)        # laufendes Quartal, z.B. 'Q2 2026'
+    q_bewertung = vorquartal_label(today)   # zuletzt bewertetes Quartal, z.B. 'Q1 2026'
+    q_now_num = (today.month - 1) // 3 + 1  # 1..4 — fürs Timeline-Mapping
+
     d = delta_naechste_stufe(pm)
+
     live_kpis = None  # gefüllt nur wenn nicht Stufe 6 (siehe unten)
 
     # Hero
@@ -1294,7 +1342,7 @@ def render_html(pm):
         <div class="stufe-chip {cls}">
           <div class="stufe-chip-num">{"★ Deine Stufe" if cls == "current" else ("Nächste Stufe" if cls == "next" else "Stufe")}</div>
           <div class="stufe-chip-name">{s['n']}</div>
-          <div class="stufe-chip-detail">€/h ≥ {fmt_eur(s['eur60'], 2)}<br>Zufriedenheit ≥ {s['zufr']:.1f}<br>+{int(s['zulage']*100)}% Zulage</div>
+          <div class="stufe-chip-detail">€/h ≥ {fmt_eur(s['eur60'], 2)}<br>Zufriedenheit ≥ {fmt_de(s['zufr'])}<br>+{int(s['zulage']*100)} % Zulage</div>
         </div>''')
     
     # €/60min-Block: Schwelle aktuell + progress
@@ -1381,7 +1429,7 @@ def render_html(pm):
               <div class="gap-row-icon">✓</div>
               <div class="gap-row-content">
                 <div class="gap-row-title">Team-Zufriedenheit — erreicht</div>
-                <div class="gap-row-detail">Du hast {pm['zufr']:.1f} / 10, Schwelle für Stufe {next_s_obj['n']}: {next_s_obj['zufr']:.1f}</div>
+                <div class="gap-row-detail">Du hast {fmt_de(pm['zufr'])} / 10, Schwelle für Stufe {next_s_obj['n']}: {fmt_de(next_s_obj['zufr'])}</div>
               </div>
             </div>'''
         else:
@@ -1393,15 +1441,15 @@ def render_html(pm):
                 <div class="gap-row-kpis">
                   <div class="gap-mini">
                     <div class="gap-mini-label">Fehlt</div>
-                    <div class="gap-mini-val">+{delta_zufr:.1f} Punkte</div>
+                    <div class="gap-mini-val">+{fmt_de(delta_zufr)} Punkte</div>
                   </div>
                   <div class="gap-mini">
                     <div class="gap-mini-label">Ziel</div>
-                    <div class="gap-mini-val">{next_s_obj['zufr']:.1f} / 10</div>
+                    <div class="gap-mini-val">{fmt_de(next_s_obj['zufr'])} / 10</div>
                   </div>
                 </div>
                 <div class="gap-bar"><div class="gap-bar-fill" style="width: {zufr_progress:.0f}%"></div></div>
-                <div class="gap-bar-caption">{pm['zufr']:.1f} → {next_s_obj['zufr']:.1f}</div>
+                <div class="gap-bar-caption">{fmt_de(pm['zufr'])} → {fmt_de(next_s_obj['zufr'])}</div>
               </div>
             </div>'''
         
@@ -1471,7 +1519,7 @@ def render_html(pm):
                   <span class="weg-chip-range">{p_text}</span>
                 </div>
               </div>
-              <div class="live-kpi-note">Q2 2026 bisher ({live_kpis['pkv_termine_total']} Termine)</div>
+              <div class="live-kpi-note">{q_aktuell} bisher · Stichprobe: {fmt_eur(live_kpis['pkv_termine_total'])} Termine</div>
             </div>'''
             # Krankheit
             k_val = live_kpis['krank_tage_pro_th_jahr']
@@ -1494,9 +1542,10 @@ def render_html(pm):
             aktueller_stand_html = f'''
             <div class="block">
               <div class="block-label">Live</div>
-              <div class="block-title">Wo stehst du aktuell (Q2 2026)?</div>
+              <div class="block-title">Wo stehst du aktuell ({q_aktuell})?</div>
               <div class="live-kpi-card">
                 <div class="live-kpi-header">
+                  <div class="live-status">Live</div>
                   <div class="live-kpi-date">Stand: {today_str}</div>
                 </div>
                 {rows_html}
@@ -1517,10 +1566,10 @@ def render_html(pm):
           </div>
           <div class="weg-legende-row">
             <span class="weg-legende-kpi">PKV-Quote</span>
-            <span class="weg-legende-item low">gering <span class="rg">8–18 %</span></span>
-            <span class="weg-legende-item mid">mittel <span class="rg">19–29 %</span></span>
-            <span class="weg-legende-item high">hoch <span class="rg">30–39 %</span></span>
-            <span class="weg-legende-item vhigh">sehr hoch <span class="rg">40 %+</span></span>
+            <span class="weg-legende-item low">gering <span class="rg">bis 10 %</span></span>
+            <span class="weg-legende-item mid">mittel <span class="rg">11–20 %</span></span>
+            <span class="weg-legende-item high">hoch <span class="rg">21–30 %</span></span>
+            <span class="weg-legende-item vhigh">sehr hoch <span class="rg">über 30 %</span></span>
           </div>
           <div class="weg-legende-row">
             <span class="weg-legende-kpi">Krankheit</span>
@@ -1530,11 +1579,19 @@ def render_html(pm):
           </div>
         </div>
         '''
+        # Zufriedenheits-Voraussetzung für die Wege (UND-Bedingung neben den 3 Variablen)
+        if pm['zufr'] >= next_s_obj['zufr']:
+            zufr_voraussetzung = f'<span style="color:var(--green);font-weight:700;">✓ erreicht ({fmt_de(pm["zufr"])} / 10)</span>'
+        else:
+            _delta_z = next_s_obj['zufr'] - pm['zufr']
+            zufr_voraussetzung = f'<span style="color:var(--orange);font-weight:700;">noch +{fmt_de(_delta_z)} Pkt fehlen ({fmt_de(pm["zufr"])} → {fmt_de(next_s_obj["zufr"])})</span>'
+
         wege_block_html = f'''
         <div class="block">
           <div class="block-label">Konkrete Wege</div>
           <div class="block-title">Optionen um Stufe {next_s_obj['n']} zu erreichen</div>
-          <p class="block-intro">Jeder Weg ist eine mögliche Kombination aus Auslastung, PKV-Quote und Krankenstand. Schon eine dieser Kombinationen reicht.</p>
+          <p class="block-intro">Jeder Weg zeigt eine <strong>realistische</strong> Kombination — schon eine davon reicht für Stufe {next_s_obj['n']}. PKV-Quote ist überall „gering" gesetzt, weil das eurem aktuellen Stand entspricht; eine höhere PKV-Quote macht jeden Weg leichter (siehe Hebel oben).</p>
+          <p class="block-intro" style="margin-top:-8px;">Voraussetzung in allen Wegen: Team-Zufriedenheit ≥ {fmt_de(next_s_obj['zufr'])} — {zufr_voraussetzung}.</p>
           {wege_content}
           {wege_legende}
         </div>
@@ -1552,25 +1609,31 @@ def render_html(pm):
 
         # Termin: pro TH ergänzen wenn Bundle-Größe bekannt
         if h["d_termin_pro_th"] is not None and h["anzahl_th"]:
-            termin_from_to = f'Bundle-weit · ≈ +{h["d_termin_pro_th"]:.1f} Termine/Wo pro TH ({h["anzahl_th"]} TH)'
+            termin_from_to = f'Bundle-weit · ≈ +{fmt_de(h["d_termin_pro_th"])} Termine/Wo pro Therapeut:in (im Bundle: {h["anzahl_th"]} Therapeut:innen)'
         else:
             termin_from_to = 'Bundle-weit, zusätzlich zu heute'
 
-        if h["krank_now"] and h["d_krank_tage"] > h["krank_now"]:
-            krank_from_to = f'aktuell nur {h["krank_now"]:.0f} Tg./TH/Jahr — würde negative Krank-Tage bedeuten'
+        krank_unmöglich = bool(h["krank_now"] and h["d_krank_tage"] > h["krank_now"])
+        if krank_unmöglich:
+            krank_from_to = f'Krankenstand bereits niedrig ({h["krank_now"]:.0f} Tg./TH/Jahr) — als alleiniger Hebel nicht ausreichend.'
         elif h["krank_now"]:
             krank_from_to = f'von {h["krank_now"]:.0f} auf {h["krank_neu"]:.0f} Tg./TH/Jahr'
         else:
             krank_from_to = f'auf ca. {h["krank_neu"]:.0f} Tg./TH/Jahr'
+        krank_effect_text = 'reicht alleine nicht' if krank_unmöglich else f'−{h["d_krank_tage"]:.0f} Tage/TH/Jahr'
 
         hebel_block_html = f'''
-  <!-- BLOCK 7: HEBEL (dynamisch) -->
+  <!-- BLOCK „Wie kommst du auf Stufe N?" — Gap-Status + Hebel zusammen -->
   <div class="block">
     <div class="block-label">Aktion</div>
-    <div class="block-title">Was musst du dafür tun?</div>
-    <p class="hebel-headline">
-      Um Stufe {next_s_obj['n']} zu erreichen, brauchst du <strong>+{h["delta_pct"]:.1f} % Bundle-Umsatz</strong>.
-      Hier sind drei Hebel — jeder einzeln würde reichen, eine Kombination ist meist realistischer (siehe Wege oben).
+    <div class="block-title">Wie kommst du auf Stufe {next_s_obj['n']}?</div>
+    <p class="block-intro">Für Stufe {next_s_obj['n']} müssen <strong>beide</strong> Bedingungen erfüllt sein — Umsatz <strong>und</strong> Team-Zufriedenheit.</p>
+    <div class="gap-card">
+      {umsatz_html}
+      {zufr_html}
+    </div>
+    <p class="hebel-headline" style="margin-top:24px">
+      Drei Hebel zur Umsatz-Lücke (<strong>+{fmt_de(h["delta_pct"])} % Bundle-Umsatz</strong>) — jeder einzeln würde reichen, eine Kombination ist meist realistischer (siehe Wege unten).
     </p>
     <div class="hebel-grid">
       <div class="hebel-item">
@@ -1595,11 +1658,36 @@ def render_html(pm):
           <div class="hebel-desc">Team-Gesundheit, gute Urlaubsplanung, keine Ansteckungsketten.</div>
           <div class="hebel-from-to">{krank_from_to}</div>
         </div>
-        <div class="hebel-effect{_eff(h["krank_lvl"])}">−{h["d_krank_tage"]:.0f} Tage/TH/Jahr</div>
+        <div class="hebel-effect{_eff(h["krank_lvl"])}">{krank_effect_text}</div>
       </div>
     </div>
-    <p class="hebel-note">Näherungen — Faktoren: PKV 1,7×, 230 Werktage/Jahr. Kombinationen sind die Regel, nicht die Ausnahme.</p>
+    <p class="hebel-note">Lineare Näherungen — bei großen Hebeln können die Werte ±5–10 % von der tatsächlichen Wirkung abweichen. Faktoren: +1 %-Pkt PKV ≈ +0,7 % Umsatz · +1 Termin/Wo Bundle ≈ +0,3 % · −1 %-Pkt Krank ≈ +0,5 %. PKV-Tarif 1,7× GKV, 230 Werktage/Jahr.</p>
   </div>'''
+
+    # Timeline: nur bewertete Quartale + laufendes (keine leeren Zukunfts-Karten)
+    year = today.year
+    q_eval = q_now_num - 1 if q_now_num > 1 else None  # None: Bewertung war Vorjahr-Q4 (selten)
+    timeline_cards = []
+    end_q = q_now_num  # bis und mit dem laufenden Quartal
+    for q in range(1, end_q + 1):
+        q_label_card = f"Q{q} {year}"
+        if q == q_eval:
+            timeline_cards.append(f'''<div class="timeline-item current">
+        <div class="timeline-q">{q_label_card}</div>
+        <div class="timeline-stufe">Stufe {pm['tats_stufe']}</div>
+        <div class="timeline-gehalt">{fmt_eur(pm['monatsgehalt'])} € / Monat</div>
+      </div>''')
+        elif q == q_now_num:
+            timeline_cards.append(f'''<div class="timeline-item empty">
+        <div class="timeline-q">{q_label_card}</div>
+        <div class="timeline-empty">Laufendes Quartal</div>
+      </div>''')
+        else:
+            timeline_cards.append(f'''<div class="timeline-item empty">
+        <div class="timeline-q">{q_label_card}</div>
+        <div class="timeline-empty">bewertet</div>
+      </div>''')
+    timeline_html = '\n      '.join(timeline_cards)
 
     html_str = f'''<!DOCTYPE html>
 <html lang="de">
@@ -1614,18 +1702,18 @@ def render_html(pm):
   
   <div class="topbar">
     <span class="topbar-name">Vacura · Gehalts-Dashboard</span>
-    <span class="topbar-quartal">Q1 2026</span>
+    <span class="topbar-quartal">{q_bewertung}</span>
   </div>
-  
+
   <h1 class="page-title">Hallo {pm['name']}.</h1>
-  <p class="page-subtitle">Dein Stand nach Q1 2026 und was das für Q2 bedeutet.</p>
+  <p class="page-subtitle">Hier siehst du, wo du stehst und wie du auf die nächste Stufe kommst.</p>
   
   <!-- BLOCK 1: HERO -->
   <div class="block">
     <div class="hero-card">
       <div class="hero-stufe">{hero_stufe_text}</div>
       <div class="hero-gehalt">{fmt_eur(pm['monatsgehalt'])} €</div>
-      <div class="hero-gehalt-unit">Monatsgehalt ab Q2 2026</div>
+      <div class="hero-gehalt-unit">Monatsgehalt ab {q_aktuell}</div>
       <div class="hero-meta">
         <div class="hero-meta-item">
           <span class="hero-meta-label">Jahresgehalt</span>
@@ -1649,7 +1737,7 @@ def render_html(pm):
     <div class="block-title">Wie setzt sich dein Gehalt zusammen?</div>
     <div class="breakdown-card">
       <div class="breakdown-formula">
-        <strong>Sockel</strong> + <strong>Bundle-Zulage</strong> = <strong>Basis-Gehalt</strong>, davon <strong>+{int(pm['tats_stufe_zulage_pct']*100)}%</strong> Stufen-Zulage
+        <strong>Sockel</strong> + <strong>Bundle-Zulage</strong> = <strong>Basis-Gehalt</strong>, davon <strong>+{int(pm['tats_stufe_zulage_pct']*100)} %</strong> Stufen-Zulage
       </div>
       <div class="breakdown-bar">
         <div class="breakdown-seg sockel" style="flex: {sockel_pct:.1f}">Sockel</div>
@@ -1662,21 +1750,24 @@ def render_html(pm):
           <div class="breakdown-legend-val">{fmt_eur(40000)} €</div>
         </div>
         <div class="breakdown-legend-item bundle">
-          <div class="breakdown-legend-label">Bundle-Zulage ({pm['th_pm']} TH-Äqui)</div>
+          <div class="breakdown-legend-label">Bundle-Zulage (für {pm['th_pm']} Anteile<sup>¹</sup>)</div>
           <div class="breakdown-legend-val">+{fmt_eur(pm['bundle_zulage'])} €</div>
         </div>
         <div class="breakdown-legend-item stufe">
-          <div class="breakdown-legend-label">Variable Zulage (+{int(pm['tats_stufe_zulage_pct']*100)}%)</div>
-          <div class="breakdown-legend-val">× {1 + pm['tats_stufe_zulage_pct']:.2f}</div>
+          <div class="breakdown-legend-label">Variable Zulage (+{int(pm['tats_stufe_zulage_pct']*100)} %)</div>
+          <div class="breakdown-legend-val">× {fmt_de(1 + pm['tats_stufe_zulage_pct'], 2)}</div>
         </div>
       </div>
       <div class="breakdown-result">
         <span class="breakdown-result-label">→ Jahresgehalt (bei {pm['wochenstd']} h/Woche)</span>
         <span class="breakdown-result-val">{fmt_eur(pm['jahresgehalt'])} €</span>
       </div>
+      <p style="font-size:11px;color:var(--muted);margin-top:14px;line-height:1.5;">
+        <sup>¹</sup> „Anteile" = anteilige Bundle-Größe für deine Zulage — gewichtet auf deine Wochenstunden und deinen Anteil am Bundle-Team.
+      </p>
     </div>
   </div>
-  
+
   <!-- BLOCK 3: WARUM DIESE STUFE -->
   <div class="block">
     <div class="block-label">Einordnung</div>
@@ -1687,29 +1778,32 @@ def render_html(pm):
         <div class="kpi-label">Dein Umsatz pro Therapie-Stunde</div>
         <div class="kpi-value ok">{fmt_eur(pm['eur60'], 2)} <span class="kpi-unit">€/h</span></div>
         <div class="kpi-schwelle">Schwelle Stufe {pm['tats_stufe']}: <strong>{fmt_eur(curr_s['eur60'], 2)} €/h</strong>{' · Stufe ' + str(next_s['n']) + ': ' + fmt_eur(next_s['eur60'], 2) + ' €/h' if d else ''}</div>
-        <div class="kpi-bar"><div class="kpi-bar-fill {'over' if pm['eur60'] >= curr_s['eur60'] else 'under'}" style="width: {min(100, pm['eur60']/next_s['eur60']*100):.0f}%"></div></div>
+        {_eur_bar_html(pm, curr_s, next_s, d)}
       </div>
       <div class="kpi-card">
         <div class="kpi-label">Team-Zufriedenheit</div>
-        <div class="kpi-value ok">{pm['zufr']:.1f} <span class="kpi-unit">/ 10</span></div>
-        <div class="kpi-schwelle">Schwelle Stufe {pm['tats_stufe']}: <strong>{curr_s['zufr']:.1f}</strong>{' · Stufe ' + str(next_s['n']) + ': ' + f"{next_s['zufr']:.1f}" if d else ''}</div>
-        <div class="kpi-bar"><div class="kpi-bar-fill {'over' if pm['zufr'] >= curr_s['zufr'] else 'under'}" style="width: {min(100, pm['zufr']/max(next_s['zufr'],0.1)*100):.0f}%"></div></div>
+        <div class="kpi-value ok">{fmt_de(pm['zufr'])} <span class="kpi-unit">/ 10</span></div>
+        <div class="kpi-schwelle">Schwelle Stufe {pm['tats_stufe']}: <strong>{fmt_de(curr_s['zufr'])}</strong>{' · Stufe ' + str(next_s['n']) + ': ' + fmt_de(next_s['zufr']) if d else ''}</div>
+        {_zufr_bar_html(pm, curr_s, next_s, d)}
         <div class="zufr-breakdown">
-          <div class="zufr-breakdown-title">So setzt sich der Score zusammen</div>
+          <div class="zufr-breakdown-title">Zusammensetzung (gewichtete Summe der drei Dimensionen)</div>
           <div class="zufr-sub">
             <span class="zufr-sub-label">Rücken freihalten</span>
             <span class="zufr-sub-bar"><span class="zufr-sub-fill" style="width:{pm['ruecken']*10:.0f}%"></span></span>
-            <span class="zufr-sub-val">{pm['ruecken']:.1f} <small>× 20 %</small></span>
+            <span class="zufr-sub-val">{fmt_de(pm['ruecken'])} <small>· Gewicht 20 %</small></span>
           </div>
           <div class="zufr-sub">
             <span class="zufr-sub-label">Kommunikation</span>
             <span class="zufr-sub-bar"><span class="zufr-sub-fill" style="width:{pm['komm']*10:.0f}%"></span></span>
-            <span class="zufr-sub-val">{pm['komm']:.1f} <small>× 20 %</small></span>
+            <span class="zufr-sub-val">{fmt_de(pm['komm'])} <small>· Gewicht 20 %</small></span>
           </div>
           <div class="zufr-sub">
             <span class="zufr-sub-label">Weiterempfehlung (eNPS)</span>
             <span class="zufr-sub-bar"><span class="zufr-sub-fill" style="width:{pm['enps']*10:.0f}%"></span></span>
-            <span class="zufr-sub-val">{pm['enps']:.1f} <small>× 60 %</small></span>
+            <span class="zufr-sub-val">{fmt_de(pm['enps'])} <small>· Gewicht 60 %</small></span>
+          </div>
+          <div class="zufr-formel" style="font-size:11px;color:var(--muted);margin-top:10px;padding-top:8px;border-top:1px dashed var(--line);">
+            Score = 0,2 × {fmt_de(pm['ruecken'])} + 0,2 × {fmt_de(pm['komm'])} + 0,6 × {fmt_de(pm['enps'])} = <strong>{fmt_de(pm['zufr'])}</strong>
           </div>
         </div>
       </div>
@@ -1725,43 +1819,25 @@ def render_html(pm):
     </div>
   </div>
   
-  {next_block}
-  
-  {gap_block}
-
   {aktueller_stand_html}
 
-  {wege_block_html}
+  {next_block}
 
   {hebel_block_html}
+
+  {wege_block_html}
 
   <!-- BLOCK 8: TIMELINE -->
   <div class="block">
     <div class="block-label">Verlauf</div>
     <div class="block-title">Deine Entwicklung</div>
     <div class="timeline-grid">
-      <div class="timeline-item current">
-        <div class="timeline-q">Q1 2026</div>
-        <div class="timeline-stufe">Stufe {pm['tats_stufe']}</div>
-        <div class="timeline-gehalt">{fmt_eur(pm['monatsgehalt'])} € / Monat</div>
-      </div>
-      <div class="timeline-item empty">
-        <div class="timeline-q">Q2 2026</div>
-        <div class="timeline-empty">Laufendes Quartal</div>
-      </div>
-      <div class="timeline-item empty">
-        <div class="timeline-q">Q3 2026</div>
-        <div class="timeline-empty">noch offen</div>
-      </div>
-      <div class="timeline-item empty">
-        <div class="timeline-q">Q4 2026</div>
-        <div class="timeline-empty">noch offen</div>
-      </div>
+      {timeline_html}
     </div>
   </div>
-  
+
   <div class="footer">
-    Vacura · PM-Gehaltsmodell · Stand Q1 2026<br>
+    Vacura · PM-Gehaltsmodell · Stand {q_bewertung}<br>
     <a href="#top">↑ Nach oben</a>
   </div>
   
