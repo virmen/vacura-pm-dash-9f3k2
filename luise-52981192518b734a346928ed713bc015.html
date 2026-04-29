@@ -412,10 +412,8 @@ body {
   white-space: nowrap;
   text-align: center;
 }
-.hebel-effect.unrealistic {
-  color: var(--red);
-  background: var(--red-light);
-}
+.hebel-effect.borderline { color: var(--orange); background: var(--orange-light); }
+.hebel-effect.impossible { color: var(--red); background: var(--red-light); }
 .hebel-tag {
   display: inline-block;
   font-size: 11px; font-weight: 600;
@@ -423,8 +421,9 @@ body {
   margin-left: 6px;
   letter-spacing: 0.02em;
 }
-.hebel-tag.realistic { background: var(--green-light); color: var(--green); }
-.hebel-tag.unrealistic { background: var(--red-light); color: var(--red); }
+.hebel-tag.realistic  { background: var(--green-light);  color: var(--green); }
+.hebel-tag.borderline { background: var(--orange-light); color: var(--orange); }
+.hebel-tag.impossible { background: var(--red-light);    color: var(--red); }
 .hebel-from-to {
   font-size: 12px; color: var(--ink-soft);
   margin-top: 4px;
@@ -1006,7 +1005,7 @@ body {
                   <span class="weg-chip-range">6 %</span>
                 </div>
               </div>
-              <div class="live-kpi-note">Q2 2026 bisher (1482 Termine)</div>
+              <div class="live-kpi-note">Q2 2026 bisher (1484 Termine)</div>
             </div>
             <div class="live-kpi-row">
               <div class="live-kpi-label">Krank-Tage/TH/Jahr</div>

@@ -412,10 +412,8 @@ body {
   white-space: nowrap;
   text-align: center;
 }
-.hebel-effect.unrealistic {
-  color: var(--red);
-  background: var(--red-light);
-}
+.hebel-effect.borderline { color: var(--orange); background: var(--orange-light); }
+.hebel-effect.impossible { color: var(--red); background: var(--red-light); }
 .hebel-tag {
   display: inline-block;
   font-size: 11px; font-weight: 600;
@@ -423,8 +421,9 @@ body {
   margin-left: 6px;
   letter-spacing: 0.02em;
 }
-.hebel-tag.realistic { background: var(--green-light); color: var(--green); }
-.hebel-tag.unrealistic { background: var(--red-light); color: var(--red); }
+.hebel-tag.realistic  { background: var(--green-light);  color: var(--green); }
+.hebel-tag.borderline { background: var(--orange-light); color: var(--orange); }
+.hebel-tag.impossible { background: var(--red-light);    color: var(--red); }
 .hebel-from-to {
   font-size: 12px; color: var(--ink-soft);
   margin-top: 4px;
@@ -1062,7 +1061,7 @@ body {
     <div class="block-title">Was musst du dafür tun?</div>
     <p class="hebel-headline">
       Um Stufe 3 zu erreichen, brauchst du <strong>+2.8 % Bundle-Umsatz</strong>.
-      Hier sind drei Hebel — jeder einzeln würde reichen, eine Kombination ist meist realistischer.
+      Hier sind drei Hebel — jeder einzeln würde reichen, eine Kombination ist meist realistischer (siehe Wege oben).
     </p>
     <div class="hebel-grid">
       <div class="hebel-item">
@@ -1077,17 +1076,17 @@ body {
         <div class="hebel-content">
           <div class="hebel-name">Mehr Termine pro Woche <span class="hebel-tag realistic">realistisch</span></div>
           <div class="hebel-desc">Auslastung erhöhen, neue Patienten gewinnen, Slots besser nutzen.</div>
-          <div class="hebel-from-to">Bundle-weit, zusätzlich zu heute</div>
+          <div class="hebel-from-to">Bundle-weit · ≈ +0.7 Termine/Wo pro TH (14 TH)</div>
         </div>
         <div class="hebel-effect">+9 Termine/Wo</div>
       </div>
       <div class="hebel-item">
         <div class="hebel-content">
-          <div class="hebel-name">Krankenstand senken <span class="hebel-tag unrealistic">ambitioniert</span></div>
+          <div class="hebel-name">Krankenstand senken <span class="hebel-tag borderline">ambitioniert</span></div>
           <div class="hebel-desc">Team-Gesundheit, gute Urlaubsplanung, keine Ansteckungsketten.</div>
           <div class="hebel-from-to">von 16 auf 3 Tg./TH/Jahr</div>
         </div>
-        <div class="hebel-effect unrealistic">−13 Tage/TH/Jahr</div>
+        <div class="hebel-effect borderline">−13 Tage/TH/Jahr</div>
       </div>
     </div>
     <p class="hebel-note">Näherungen — Faktoren: PKV 1,7×, 230 Werktage/Jahr. Kombinationen sind die Regel, nicht die Ausnahme.</p>
