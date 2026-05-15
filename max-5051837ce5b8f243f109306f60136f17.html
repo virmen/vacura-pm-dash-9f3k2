@@ -932,6 +932,7 @@ body {
             <div class="block">
               <div class="block-label">Live</div>
               <div class="block-title">Wo stehst du aktuell (Q2 2026)?</div>
+              <p class="block-intro" style="font-size:12px;margin-bottom:14px;">Orientierung für das laufende Quartal — die finale Bewertung erfolgt nach Q-Abschluss aus den endgültigen Daten.</p>
               <div class="live-kpi-card">
                 <div class="live-kpi-header">
                   <div class="live-status">Live</div>
@@ -956,7 +957,7 @@ body {
                   <span class="weg-chip-range">9 %</span>
                 </div>
               </div>
-              <div class="live-kpi-note">Q2 2026 bisher · Stichprobe: 1.802 Termine</div>
+              <div class="live-kpi-note">Q2 2026 bisher · Stichprobe: 1.810 Termine</div>
             </div>
             <div class="live-kpi-row">
               <div class="live-kpi-label">Krank-Tage/TH/Jahr</div>
@@ -967,6 +968,16 @@ body {
                 </div>
               </div>
               <div class="live-kpi-note">letzte 90 Tage, aufs Jahr hochgerechnet</div>
+            </div>
+            <div class="live-kpi-row">
+              <div class="live-kpi-label">€/h (Trend)</div>
+              <div class="live-kpi-chip-track">
+                <div class="live-kpi-chip weg-chip-high" style="width:75%">
+                  <span class="weg-chip-text"><span style="color:var(--teal);font-weight:700;">→ Stufe 2 bestätigt</span></span>
+                  <span class="weg-chip-range">66,58 €/h</span>
+                </div>
+              </div>
+              <div class="live-kpi-note">Q-bisher (6.4 Wo, 1769 Termine) · finale Bewertung am Q-Ende</div>
             </div>
               </div>
             </div>
@@ -992,31 +1003,31 @@ body {
         
 
   
-  <!-- BLOCK „Wie kommst du auf Stufe N?" — Gap-Status + Hebel zusammen -->
+  <!-- BLOCK „Wie kommst du auf Stufe N?" — Vergleich Q-Start vs. Live -->
   <div class="block">
     <div class="block-label">Aktion</div>
     <div class="block-title">Wie kommst du auf Stufe 3?</div>
-    <p class="block-intro">Für Stufe 3 müssen <strong>beide</strong> Bedingungen erfüllt sein — Umsatz <strong>und</strong> Team-Zufriedenheit.</p>
+    <p class="block-intro">Für Stufe 3 müssen <strong>beide</strong> Bedingungen erfüllt sein — Umsatz <strong>und</strong> Team-Zufriedenheit. <em style="color:var(--muted);">Live-Werte sind Orientierung; die finale Bewertung erfolgt am Q-Ende.</em></p>
     <div class="gap-card">
       
-            <div class="gap-row gap">
-              <div class="gap-row-icon">↗</div>
-              <div class="gap-row-content">
-                <div class="gap-row-title">Mehr Umsatz pro Therapie-Stunde</div>
-                <div class="gap-row-kpis">
-                  <div class="gap-mini">
-                    <div class="gap-mini-label">Fehlt</div>
-                    <div class="gap-mini-val">+1,98 €/h</div>
-                  </div>
-                  <div class="gap-mini">
-                    <div class="gap-mini-label">Als Bundle-Umsatz/Monat</div>
-                    <div class="gap-mini-val">+2.724 €</div>
-                  </div>
-                </div>
-                <div class="gap-bar"><div class="gap-bar-fill" style="width: 68%"></div></div>
-                <div class="gap-bar-caption">70,66 €/h → 72,64 €/h</div>
-              </div>
+      <div class="gap-row" style="border-top:none;padding-top:4px;">
+        <div class="gap-row-icon" style="background:var(--teal-light);color:var(--teal);">€</div>
+        <div class="gap-row-content">
+          <div class="gap-row-title">Umsatz pro Therapie-Stunde</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:8px;">
+            <div>
+              <div class="gap-mini-label">Bei Q-Start (Q1-Bewertung)</div>
+              <div class="gap-mini-val" style="color:var(--teal);">70,66 €/h</div>
+              <div style="font-size:11px;color:var(--muted);margin-top:4px;">fehlten +1,98 €/h zu Stufe 3 (72,64 €/h)</div>
             </div>
+            <div>
+              <div class="gap-mini-label">Live (Q-bisher · 6.4 Wo)</div>
+              <div class="gap-mini-val" style="color:var(--orange);">66,58 €/h</div>
+              <div style="font-size:11px;color:var(--orange);margin-top:4px;font-weight:600;">aktuell unter Q1 — Trend Stufe 2</div>
+            </div>
+          </div>
+        </div>
+      </div>
       
             <div class="gap-row done">
               <div class="gap-row-icon">✓</div>
@@ -1024,38 +1035,39 @@ body {
                 <div class="gap-row-title">Team-Zufriedenheit — erreicht</div>
                 <div class="gap-row-detail">Du hast 8,5 / 10, Schwelle für Stufe 3: 7,0</div>
               </div>
+              <div style="font-size:11px;color:var(--muted);font-style:italic;margin-top:6px;">Wert aus Q1-Umfrage · Live-Update zur Zufriedenheit nicht möglich</div>
             </div>
     </div>
     <p class="hebel-headline" style="margin-top:24px">
-      Drei Hebel zur Umsatz-Lücke (<strong>+2,8 % Bundle-Umsatz</strong>) — jeder einzeln würde reichen, eine Kombination ist meist realistischer (siehe Wege unten).
+      Drei Hebel zur Umsatz-Lücke — bei Q-Start: <strong>+2,8 %</strong>, aktuell live: <strong>+9,1 %</strong> Bundle-Umsatz. Jeder Hebel allein würde reichen, eine Kombination ist meist realistischer (siehe Wege unten).
     </p>
     <div class="hebel-grid">
       <div class="hebel-item">
         <div class="hebel-content">
           <div class="hebel-name">Höherer PKV-Anteil <span class="hebel-tag realistic">realistisch</span></div>
           <div class="hebel-desc">Privatpatienten aktiv ansprechen. PKV zahlt 1,7× den GKV-Tarif.</div>
-          <div class="hebel-from-to">von 9 % auf 13 %</div>
+          <div class="hebel-from-to">von 9 % auf 22 % <span style="color:var(--muted);font-size:11px;">(Q-Start: +4 %-Pkt)</span></div>
         </div>
-        <div class="hebel-effect">+4 %-Pkt PKV</div>
+        <div class="hebel-effect">+13 %-Pkt PKV</div>
       </div>
       <div class="hebel-item">
         <div class="hebel-content">
-          <div class="hebel-name">Mehr Termine pro Woche <span class="hebel-tag realistic">realistisch</span></div>
+          <div class="hebel-name">Mehr Termine pro Woche <span class="hebel-tag impossible">alleine nicht möglich</span></div>
           <div class="hebel-desc">Auslastung erhöhen, neue Patienten gewinnen, Slots besser nutzen.</div>
-          <div class="hebel-from-to">Bundle-weit · ≈ +0,7 Termine/Wo pro Therapeut:in (im Bundle: 13 Therapeut:innen)</div>
+          <div class="hebel-from-to">Bundle-weit · ≈ +2,3 Termine/Wo pro Therapeut:in (im Bundle: 13 Therapeut:innen) <span style="color:var(--muted);font-size:11px;">(Q-Start: +9/Wo)</span></div>
         </div>
-        <div class="hebel-effect">+9 Termine/Wo</div>
+        <div class="hebel-effect impossible">+30 Termine/Wo</div>
       </div>
       <div class="hebel-item">
         <div class="hebel-content">
-          <div class="hebel-name">Krankenstand senken <span class="hebel-tag borderline">ambitioniert</span></div>
+          <div class="hebel-name">Krankenstand senken <span class="hebel-tag impossible">alleine nicht möglich</span></div>
           <div class="hebel-desc">Team-Gesundheit, gute Urlaubsplanung, keine Ansteckungsketten.</div>
-          <div class="hebel-from-to">von 18 auf 5 Tg./TH/Jahr</div>
+          <div class="hebel-from-to">Krankenstand bereits niedrig (18 Tg./TH/Jahr) — als alleiniger Hebel nicht ausreichend.</div>
         </div>
-        <div class="hebel-effect borderline">−13 Tage/TH/Jahr</div>
+        <div class="hebel-effect impossible">reicht alleine nicht</div>
       </div>
     </div>
-    <p class="hebel-note">Lineare Näherungen — bei großen Hebeln können die Werte ±5–10 % von der tatsächlichen Wirkung abweichen. Faktoren: +1 %-Pkt PKV ≈ +0,7 % Umsatz · +1 Termin/Wo Bundle ≈ +0,3 % · −1 %-Pkt Krank ≈ +0,5 %. PKV-Tarif 1,7× GKV, 230 Werktage/Jahr.</p>
+    <p class="hebel-note">Lineare Näherungen — Live-Werte zeigen den Stand der ersten Q-Wochen und können sich mit kommenden Urlaubsblöcken noch verschieben. Faktoren: +1 %-Pkt PKV ≈ +0,7 % Umsatz · +1 Termin/Wo Bundle ≈ +0,3 % · −1 %-Pkt Krank ≈ +0,5 %. PKV-Tarif 1,7× GKV, 230 Werktage/Jahr.</p>
   </div>
 
   
