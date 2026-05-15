@@ -14,6 +14,12 @@ _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 EXCEL = os.environ.get('EXCEL_PATH') or os.path.expanduser('~/Code/Claude/Github/pm-dashboards/PM_Gehaltsmodell_v18.xlsx')
 OUT_DIR = os.environ.get('OUT_DIR') or os.path.expanduser('~/Code/Claude/Github/pm-dashboards/v2')
 
+# PKV/SZ-Aufschlag auf GKV-Tarif. Wirkt sich auf IST aus (termin_umsatz) und auf
+# den Hebel-Faktor (1 %-Pkt PKV ≈ (PKV_FAKTOR-1)*100 % Umsatz). Schwellen in STUFEN
+# sind auf 1,7 kalibriert — bei Änderung müssen die Schwellen rekalibriert oder
+# pro Bundle um den Mix-Faktor adjustiert werden.
+PKV_FAKTOR = 1.7
+
 # Stufen
 STUFEN = [
     {'n': 1, 'name': 'Basis',         'zufr': 5.0, 'zulage': 0.00, 'eur60': 61.17},
@@ -271,7 +277,7 @@ def hebel_optionen(pm_data, gap_data, live_kpis):
     if delta_pct <= 0:
         return None
 
-    F_PKV, F_TERMIN, F_KRANK = 0.7, 0.3, 0.5
+    F_PKV, F_TERMIN, F_KRANK = (PKV_FAKTOR - 1), 0.3, 0.5
     d_pkv_pkt   = delta_pct / F_PKV
     d_termin_wo = delta_pct / F_TERMIN
     d_krank_pkt = delta_pct / F_KRANK
@@ -1185,7 +1191,7 @@ def _fetch_all(table_id, where=None):
 
 def termin_umsatz(t):
     """€-Umsatz eines Termins basierend auf Dauer (aus beginn/ende), Verordnungstyp, Hausbesuch.
-    Tarif-Logik aus reference_verguetungswerte.md: GKV-Basis nach Dauer-Stufe, ×1,7 für PKV/SZ, +27,56 € Hausbesuch (× Faktor)."""
+    Tarif-Logik aus reference_verguetungswerte.md: GKV-Basis nach Dauer-Stufe, ×PKV_FAKTOR für PKV/SZ, +27,56 € Hausbesuch (× Faktor)."""
     from datetime import datetime as _dt
     import math
     try:
@@ -1203,7 +1209,7 @@ def termin_umsatz(t):
     if t.get('is_hausbesuch'):
         basis += 27.56
     if t.get('verordnungstyp') in (2, 3):
-        basis *= 1.7
+        basis *= PKV_FAKTOR
     return basis
 
 def compute_live_quartalsstand(pm, today=None):
@@ -1884,7 +1890,7 @@ def render_html(pm):
       <div class="hebel-item">
         <div class="hebel-content">
           <div class="hebel-name">Höherer PKV-Anteil {_tag(hsrc["pkv_lvl"])}</div>
-          <div class="hebel-desc">Privatpatienten aktiv ansprechen. PKV zahlt 1,7× den GKV-Tarif.</div>
+          <div class="hebel-desc">Privatpatienten aktiv ansprechen. PKV zahlt {fmt_de(PKV_FAKTOR)}× den GKV-Tarif.</div>
           <div class="hebel-from-to">{pkv_from_to}</div>
         </div>
         <div class="hebel-effect{_eff(hsrc["pkv_lvl"])}">+{hsrc["d_pkv_pkt"]:.0f} %-Pkt PKV</div>
@@ -1906,7 +1912,7 @@ def render_html(pm):
         <div class="hebel-effect{_eff(hsrc["krank_lvl"])}">{krank_effect_text}</div>
       </div>
     </div>
-    <p class="hebel-note">Lineare Näherungen — Live-Werte zeigen den Stand der ersten Q-Wochen und können sich mit kommenden Urlaubsblöcken noch verschieben. Faktoren: +1 %-Pkt PKV ≈ +0,7 % Umsatz · +1 Termin/Wo Bundle ≈ +0,3 % · −1 %-Pkt Krank ≈ +0,5 %. PKV-Tarif 1,7× GKV, 230 Werktage/Jahr.</p>
+    <p class="hebel-note">Lineare Näherungen — Live-Werte zeigen den Stand der ersten Q-Wochen und können sich mit kommenden Urlaubsblöcken noch verschieben. Faktoren: +1 %-Pkt PKV ≈ +{fmt_de(PKV_FAKTOR-1)} % Umsatz · +1 Termin/Wo Bundle ≈ +0,3 % · −1 %-Pkt Krank ≈ +0,5 %. PKV-Tarif {fmt_de(PKV_FAKTOR)}× GKV, 230 Werktage/Jahr.</p>
   </div>'''
 
     # Timeline: nur bewertete Quartale + laufendes (keine leeren Zukunfts-Karten)
