@@ -14,14 +14,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-# Excel-Pfad: aus ENV (CI) oder lokaler Default (Mac) oder Deploy-Repo-Pfad
-EXCEL_PATH = os.environ.get('EXCEL_PATH') or next(
-    (p for p in [
-        os.path.join(os.path.dirname(__file__), '..', 'PM_Gehaltsmodell_v18.xlsx'),
-        os.path.expanduser('~/Code/Claude/Github/pm-dashboards/PM_Gehaltsmodell_v18.xlsx'),
-    ] if os.path.exists(p)),
-    ''
-)
+EXCEL_PATH = os.path.expanduser('~/Code/Claude/Github/pm-dashboards/PM_Gehaltsmodell_v18.xlsx')
 
 
 @pytest.fixture(scope='module')
@@ -30,13 +23,15 @@ def excel_ws():
         pytest.skip(f'Excel-Datei nicht vorhanden: {EXCEL_PATH}')
     import openpyxl
     wb = openpyxl.load_workbook(EXCEL_PATH, data_only=False)
-    from generate import load_stufen_aus_excel
+    from generate import load_stufen_aus_excel, load_pms_from_excel
     load_stufen_aus_excel(wb)
+    load_pms_from_excel(wb)
     return wb['Daten']
 
 
 @pytest.fixture
-def pms_config():
+def pms_config(excel_ws):
+    """Abhängig von excel_ws, damit load_pms_from_excel() vorher lief."""
     from generate import PMS
     return {p['name']: p for p in PMS}
 

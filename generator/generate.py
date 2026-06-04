@@ -140,16 +140,49 @@ def render_wege_block(next_stufe_num):
     return f'<div class="wege-grid">{wege_html}</div>'
 
 
-PMS = [
-    {'name':'Laura',   'row':5, 'color':'#4CAF50', 'bundle_pms':['Laura','Max'],
-     'bundle_standorte':'Spandau, Mitte'},
-    {'name':'Marleen', 'row':6, 'color':'#2196F3', 'bundle_pms':['Marleen','Luise'],
-     'bundle_standorte':'Friedrichshain, Charlottenburg, Prenzlauer Berg'},
-    {'name':'Luise',   'row':7, 'color':'#9C27B0', 'bundle_pms':['Marleen','Luise'],
-     'bundle_standorte':'Friedrichshain, Charlottenburg, Prenzlauer Berg'},
-    {'name':'Max',     'row':8, 'color':'#FF9800', 'bundle_pms':['Laura','Max'],
-     'bundle_standorte':'Spandau, Mitte'},
-]
+# PMS wird zur Laufzeit aus dem Excel-Tab 'PM-Stammdaten' geladen
+# (siehe load_pms_from_excel). Default = leer; bei direkter Nutzung der
+# Module (z.B. Tests) ohne Excel bleibt PMS leer.
+PMS = []
+TOKENS = {}   # Name → 32-hex-Token, aus PM-Stammdaten gelesen
+
+def load_pms_from_excel(workbook):
+    """Liest PM-Stammdaten aus Excel-Tab 'PM-Stammdaten' und befüllt globales PMS + TOKENS.
+
+    Schema (Sheet 'PM-Stammdaten'):
+    Spalte 1=Name, 2=Wochenstd, 3=PM-Std Bundle, 4=Mindestgehalt, 5=Startdatum,
+    6=Bundle-Standorte, 7=Bundle-PMs (komma-Liste), 8=Farbe (#RRGGBB),
+    9=URL-Token (32-hex), 10=Aktiv (bool).
+
+    Inaktive PMs werden übersprungen. Bei mehrfach gleicher Name nimmt den ersten.
+    """
+    global PMS, TOKENS
+    if 'PM-Stammdaten' not in workbook.sheetnames:
+        return  # leeres PMS belassen
+    ws = workbook['PM-Stammdaten']
+    pms = []
+    tokens = {}
+    for r in range(6, 50):
+        name = ws.cell(row=r, column=1).value
+        wochenstd = ws.cell(row=r, column=2).value
+        # Nur Zeilen mit echtem PM-Namen + numerischer Wochenstunden-Zelle akzeptieren
+        # (filtert Notiz-/Hinweis-Zeilen raus)
+        if not name or not isinstance(name, str) or not isinstance(wochenstd, (int, float)):
+            continue
+        aktiv = ws.cell(row=r, column=10).value
+        if aktiv is False or (isinstance(aktiv, str) and aktiv.lower() in ('nein', 'no', 'false', '0')):
+            continue
+        bundle_pms_raw = ws.cell(row=r, column=7).value or ''
+        pms.append({
+            'name': name.strip(),
+            'color': ws.cell(row=r, column=8).value or '#0D595A',
+            'bundle_pms': [p.strip() for p in str(bundle_pms_raw).split(',') if p.strip()],
+            'bundle_standorte': ws.cell(row=r, column=6).value or '',
+        })
+        token = ws.cell(row=r, column=9).value
+        if token: tokens[name.strip()] = str(token).strip()
+    PMS = pms
+    TOKENS = tokens
 
 def th_kumuliert(n_th):
     """TH-Zulage kumuliert für n TH-Äquivalente."""
@@ -183,8 +216,21 @@ def resolve_formula(ws, r, c, max_depth=3):
         return resolve_formula(ws, row, col, max_depth-1)
     return None
 
+def _find_pm_row(ws_daten, name):
+    """Findet die Daten-Tab-Row eines PMs per Name (statt fester Row-Konstante).
+    Daten-Tab hat ab Row 5 PMs in Spalte 2. Bei Name nicht gefunden: None."""
+    for r in range(5, 30):
+        v = ws_daten.cell(row=r, column=2).value
+        if v and isinstance(v, str) and v.strip() == name:
+            return r
+    return None
+
 def compute_pm(ws_daten, pm):
-    r = pm['row']
+    # Row dynamisch finden (per Name) — kein hardcoded 'row' mehr nötig
+    r = pm.get('row') or _find_pm_row(ws_daten, pm['name'])
+    if not r:
+        print(f"    ⚠️  Daten-Tab hat keine Zeile für {pm['name']!r}, übersprungen")
+        return None
     # Stammdaten (static)
     wochenstd = ws_daten.cell(row=r, column=3).value
     pm_std_bundle = ws_daten.cell(row=r, column=4).value
@@ -2486,7 +2532,9 @@ def _main():
     wb = openpyxl.load_workbook(EXCEL, data_only=False)
     ws_d = wb['Daten']
     load_stufen_aus_excel(wb)
-    print(f'  Stufen-Schwellen aus Excel: '
+    load_pms_from_excel(wb)
+    print(f'  PMs aus Excel: {", ".join(p["name"] for p in PMS)} ({len(PMS)} aktive)')
+    print(f'  Stufen-Schwellen: '
           + ', '.join(f'{s["n"]}={s["eur60"]:.2f}€/h@zufr{s["zufr"]:.1f}' for s in STUFEN))
 
     # Q-End-Routine (optional)
@@ -2508,7 +2556,6 @@ def _main():
             continue
 
         html_out = render_html(pm_data)
-        TOKENS = {'Laura': '8278b207ba9e80605ae5f1604d696759', 'Marleen': '0093979f8cf4df0f67ec20b6e35e6beb', 'Luise': '52981192518b734a346928ed713bc015', 'Max': '5051837ce5b8f243f109306f60136f17'}
         token = TOKENS.get(pm_cfg["name"], "")
         out_path = os.path.join(OUT_DIR, f'{pm_cfg["name"].lower()}-{token}.html')
         with open(out_path, 'w') as f:
