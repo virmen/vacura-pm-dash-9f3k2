@@ -1,0 +1,83 @@
+name: Q-End-Routine
+
+on:
+  schedule:
+    # 08. des Folge-Monats nach Q-Ende (= 8. Jan / Apr / Jul / Okt) um 03:00 UTC
+    # Quartal endet jeweils am letzten Tag von Mär/Jun/Sep/Dez,
+    # Routine läuft 8 Tage später (= 1 Woche Puffer für manuelle Zufriedenheit + MediFox).
+    - cron: '0 3 8 1,4,7,10 *'
+  workflow_dispatch:
+    inputs:
+      quartal:
+        description: 'Quartal-Label (z.B. 2026-Q2), leer = automatisch letzte abgeschlossene'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  q-end:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: generator/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r generator/requirements.txt
+
+      - name: Q-End-Routine ausführen
+        env:
+          NOCODB_TOKEN: ${{ secrets.NOCODB_TOKEN }}
+          EXCEL_PATH: ${{ github.workspace }}/generator/PM_Gehaltsmodell_v18.xlsx
+          OUT_DIR: ${{ github.workspace }}
+          Q_LABEL: ${{ github.event.inputs.quartal }}
+        run: |
+          if [ -z "$Q_LABEL" ]; then
+            python3 generator/generate.py --q-end --save-excel
+          else
+            python3 generator/generate.py --q-end "$Q_LABEL" --save-excel
+          fi
+
+      - name: Commit Q-End-Werte (Excel + Dashboards)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add generator/PM_Gehaltsmodell_v18.xlsx '*.html'
+          if git diff --cached --quiet; then
+            echo "Keine Änderungen — Q-End war vermutlich schon gelaufen."
+            exit 0
+          fi
+          QLABEL="${{ github.event.inputs.quartal }}"
+          if [ -z "$QLABEL" ]; then QLABEL="auto"; fi
+          git commit -m "Q-End-Routine: $QLABEL automatisch befüllt ($(date -u +%Y-%m-%dT%H:%MZ))"
+          git push
+
+      - name: Issue erstellen für Geschäftsführung
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const qlabel = '${{ github.event.inputs.quartal }}' || 'letztes Quartal';
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `📊 Q-End-Bewertung ${qlabel} ist fertig`,
+              body: `Die automatische Q-End-Routine ist durchgelaufen. Bitte prüfen:
+
+              1. **Audit-Sheet im Excel** öffnen: ${qlabel} — sind die Werte plausibel?
+              2. **Sanity (MediFox)** durchgehen — Diff < 2 %?
+              3. **Live-Dashboards** prüfen: https://virmen.github.io/vacura-pm-dash-9f3k2/
+              4. **PM informieren** über Q-Bewertung + neues Gehalt ab nächstem Quartal
+
+              Bei Auffälligkeiten: nicht freigeben, Ursache klären.
+
+              Methodik: siehe \`pm-dashboards/v2/METHODE.md\` im Code-Repo.`
+            });

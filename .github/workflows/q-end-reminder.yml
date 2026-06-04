@@ -1,0 +1,57 @@
+name: Q-End Sanity-Reminder
+
+on:
+  schedule:
+    # 1. Tag des Folge-Monats nach Q-Ende (1. Jan / Apr / Jul / Okt) um 07:00 UTC = 09:00 Berlin
+    # Erinnerung an Geschäftsführung 1 Woche VOR der Q-End-Routine,
+    # damit Zufriedenheits-Werte + MediFox-Werte rechtzeitig ins Excel eingetragen werden.
+    - cron: '0 7 1 1,4,7,10 *'
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  reminder:
+    runs-on: ubuntu-latest
+    steps:
+      - name: GitHub-Issue als Reminder erstellen
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const today = new Date();
+            const m = today.getMonth() + 1;
+            // Welches Q wird in 7 Tagen automatisch bewertet?
+            let qLabel;
+            if (m === 1)      qLabel = `${today.getFullYear() - 1}-Q4`;
+            else if (m === 4) qLabel = `${today.getFullYear()}-Q1`;
+            else if (m === 7) qLabel = `${today.getFullYear()}-Q2`;
+            else              qLabel = `${today.getFullYear()}-Q3`;
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `⏰ Q-End-Routine ${qLabel} läuft in 7 Tagen — Excel vorbereiten`,
+              body: `Die automatische Q-End-Bewertung für **${qLabel}** läuft am **8. dieses Monats** um 03:00 UTC.
+
+              Bitte vorher im Excel \`PM_Gehaltsmodell_v18.xlsx\` eintragen:
+
+              ### 1. Zufriedenheits-Scores (Tab "Daten" Spalten 11-13)
+              - Rücken-Score (0-10)
+              - Kommunikations-Score (0-10)
+              - eNPS-Score (0-10)
+
+              Werte aus der Q-Umfrage übernehmen. **Ohne diese Werte fällt die Stufen-Bewertung falsch aus.**
+
+              ### 2. MediFox-IST eintragen (Tab "Sanity (MediFox)")
+              - Pro Bundle den MediFox-IST-Export für ${qLabel}
+              - Wird automatisch mit NocoDB-IST verglichen — Diff < 2 % normal
+
+              ### 3. Stammdaten-Check (falls Personal-Wechsel)
+              - Tab "Daten" Spalten 1-6: stimmen Wochenstunden, Bundle-Zuordnung, Mindestgehalt?
+
+              **Wenn nichts geändert wird:** die Routine läuft trotzdem und nimmt die vorhandenen Werte
+              — Zufriedenheit dann aus Vorquartal, MediFox-Sanity-Check fällt aus.
+
+              Methodik: siehe \`pm-dashboards/v2/METHODE.md\``
+            });

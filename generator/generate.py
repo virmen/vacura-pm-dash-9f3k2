@@ -2359,13 +2359,137 @@ def render_html(pm):
 </html>'''
     return html_str
 
+# =====================================================================
+# Q-END-ROUTINE
+# Wird am 1. des Folge-Monats nach Q-Ende aufgerufen (1.7./1.10./1.1./1.4.)
+# Befüllt Audit-Sheet, updated "Stufe Vorquartal" in Daten-Tab.
+# =====================================================================
+
+def parse_q_label(label):
+    """'2026-Q2' → (date(2026,4,1), date(2026,6,30), 'Audit Q2 2026')."""
+    from datetime import date as _date, timedelta as _td
+    year, q = label.split('-Q')
+    year = int(year); q = int(q)
+    q_month_start = (q - 1) * 3 + 1
+    q_start = _date(year, q_month_start, 1)
+    if q == 4:
+        q_end = _date(year, 12, 31)
+    else:
+        q_end = _date(year, q_month_start + 3, 1) - _td(days=1)
+    audit_sheet_name = f'Audit Q{q} {year}'
+    return q_start, q_end, audit_sheet_name
+
+
+def previous_q_label(today=None):
+    """Q-Label des letzten abgeschlossenen Quartals (für Q-End-Routine).
+
+    am 1.7.2026 → '2026-Q2'   (Q2 wurde am 30.6. abgeschlossen)
+    am 1.10.2026 → '2026-Q3'
+    am 1.1.2027 → '2026-Q4'
+    am 1.4.2027 → '2027-Q1'
+    """
+    from datetime import date as _date
+    today = today or _date.today()
+    q_now = (today.month - 1) // 3 + 1
+    if q_now == 1:
+        return f'{today.year - 1}-Q4'
+    return f'{today.year}-Q{q_now - 1}'
+
+
+def run_q_end_routine(wb, ws_daten, q_label):
+    """Q-End-Berechnung: schreibt Audit-Sheet, updated Stufe Vorquartal in Daten.
+
+    Returns list of result dicts pro PM für weitere Verarbeitung (z.B. Dashboard-Render).
+    """
+    q_start, q_end, audit_name = parse_q_label(q_label)
+    print(f'\n=== Q-End-Routine: {q_label} ({q_start} bis {q_end}) ===')
+
+    results = []
+    for pm_cfg in PMS:
+        pm = compute_pm(ws_daten, pm_cfg)
+        if not pm:
+            print(f'  {pm_cfg["name"]}: keine Stammdaten → übersprungen')
+            continue
+        # Vorquartal-Stufe = pm['tats_stufe'] aus Excel (= alte Vorquartal-Bewertung)
+        # Für die ±1-Logik wird pm['start_stufe'] verwendet — bleibt aus Excel
+        result = compute_quartal(pm, q_start, q_end, today=q_end)
+        if not result:
+            print(f'  {pm_cfg["name"]}: compute_quartal lieferte None')
+            continue
+        results.append((pm, result))
+        print(f'  {pm_cfg["name"]}: €/h={result["eur60"]:.2f}, rechn={result["rechn_stufe"]}, tats={result["tats_stufe"]}'
+              + (' (Probezeit)' if result.get('probezeit_aktiv') else ''))
+
+    # Audit-Sheet befüllen
+    if audit_name not in wb.sheetnames:
+        print(f'  Audit-Sheet {audit_name!r} existiert noch nicht — bitte vorher anlegen (Phase 2)')
+        return results
+
+    ws_audit = wb[audit_name]
+    print(f'\nSchreibe Werte in Audit-Sheet "{audit_name}":')
+    # Datenzeilen 8-11 (4 PMs)
+    for ri, (pm, result) in enumerate(results, start=8):
+        ws_audit.cell(row=ri, column=1, value=pm['name'])
+        ws_audit.cell(row=ri, column=2, value=pm['bundle_standorte'])
+        ws_audit.cell(row=ri, column=3, value=pm['vstd_bundle'])
+        ws_audit.cell(row=ri, column=4, value=round(result['vstd_ber'], 1))
+        ws_audit.cell(row=ri, column=5, value=round(result['abw_ber'], 1))
+        ws_audit.cell(row=ri, column=6, value=round(result['feiertage_ber'], 1))
+        ws_audit.cell(row=ri, column=7, value=round(result['ist'], 0))
+        ws_audit.cell(row=ri, column=8, value=round(result['verfueg'], 1))
+        ws_audit.cell(row=ri, column=9, value=round(result['eur60'], 2))
+        ws_audit.cell(row=ri, column=10, value=round(pm.get('zufr', 0), 2))
+        ws_audit.cell(row=ri, column=11, value=result['rechn_stufe'])
+        ws_audit.cell(row=ri, column=12, value=result['tats_stufe'])
+        ws_audit.cell(row=ri, column=13, value='Ja' if result.get('probezeit_aktiv') else 'Nein')
+        ws_audit.cell(row=ri, column=14, value=result['anzahl_th_aktiv'])
+        ws_audit.cell(row=ri, column=15, value=result['termine_count'])
+        from datetime import datetime as _dt
+        ws_audit.cell(row=ri, column=16,
+                      value=f'Berechnet {_dt.now().strftime("%Y-%m-%d %H:%M")} via compute_quartal()')
+        print(f'  Row {ri}: {pm["name"]} eingetragen')
+
+    # Stufe Vorquartal in Daten-Tab updaten (Spalte 5 — für ±1-Deckel im nächsten Q)
+    print(f'\nUpdate "Stufe Vorquartal" in Daten-Tab (Spalte 5):')
+    for pm, result in results:
+        # Finde Row im Daten-Tab via Name
+        for r in range(5, 20):
+            if ws_daten.cell(row=r, column=2).value == pm['name']:
+                old = ws_daten.cell(row=r, column=5).value
+                ws_daten.cell(row=r, column=5, value=result['tats_stufe'])
+                print(f'  {pm["name"]}: Stufe Vorquartal {old} → {result["tats_stufe"]}')
+                break
+
+    return results
+
+
 # ==== MAIN ====
+import argparse
+_ap = argparse.ArgumentParser()
+_ap.add_argument('--q-end', metavar='YYYY-QN', nargs='?', const='AUTO',
+                 help='Q-End-Routine ausführen. Ohne Argument: vorheriges abgeschlossenes Q (für Cron-Auto-Trigger).')
+_ap.add_argument('--save-excel', action='store_true',
+                 help='Excel mit Q-End-Werten überschreiben (sonst nur Dry-Run).')
+_args, _ = _ap.parse_known_args()
+if _args.q_end == 'AUTO':
+    _args.q_end = previous_q_label()
+    print(f'Q-End-Routine Auto-Modus: letztes abgeschlossenes Quartal = {_args.q_end}')
+
 print('Lade Excel...')
 wb = openpyxl.load_workbook(EXCEL, data_only=False)
 ws_d = wb['Daten']
 load_stufen_aus_excel(wb)
 print(f'  Stufen-Schwellen aus Excel: '
       + ', '.join(f'{s["n"]}={s["eur60"]:.2f}€/h@zufr{s["zufr"]:.1f}' for s in STUFEN))
+
+# Q-End-Routine (optional)
+if _args.q_end:
+    run_q_end_routine(wb, ws_d, _args.q_end)
+    if _args.save_excel:
+        wb.save(EXCEL)
+        print(f'\n✅ Excel gespeichert: {EXCEL}')
+    else:
+        print('\n(Dry-Run — Excel nicht gespeichert. Mit --save-excel überschreiben.)')
 
 os.makedirs(OUT_DIR, exist_ok=True)
 
