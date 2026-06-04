@@ -2396,11 +2396,22 @@ def previous_q_label(today=None):
     return f'{today.year}-Q{q_now - 1}'
 
 
+# Historisch eingefrorene Quartale — werden niemals von Q-End-Routine überschrieben
+Q_LABELS_EINGEFROREN = {'2026-Q1'}
+
 def run_q_end_routine(wb, ws_daten, q_label):
     """Q-End-Berechnung: schreibt Audit-Sheet, updated Stufe Vorquartal in Daten.
 
     Returns list of result dicts pro PM für weitere Verarbeitung (z.B. Dashboard-Render).
+    Wirft RuntimeError wenn Q-Label in Q_LABELS_EINGEFROREN ist (Schutz vor versehentlichem
+    Überschreiben historischer Bewertungen).
     """
+    if q_label in Q_LABELS_EINGEFROREN:
+        raise RuntimeError(
+            f'{q_label} ist als historisch eingefroren markiert. '
+            f'Audit-Sheet darf nicht überschrieben werden. '
+            f'Wenn das wirklich gewollt ist: Q_LABELS_EINGEFROREN in generate.py editieren.'
+        )
     q_start, q_end, audit_name = parse_q_label(q_label)
     print(f'\n=== Q-End-Routine: {q_label} ({q_start} bis {q_end}) ===')
 
