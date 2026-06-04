@@ -2470,48 +2470,53 @@ def run_q_end_routine(wb, ws_daten, q_label):
 
 
 # ==== MAIN ====
-import argparse
-_ap = argparse.ArgumentParser()
-_ap.add_argument('--q-end', metavar='YYYY-QN', nargs='?', const='AUTO',
-                 help='Q-End-Routine ausführen. Ohne Argument: vorheriges abgeschlossenes Q (für Cron-Auto-Trigger).')
-_ap.add_argument('--save-excel', action='store_true',
-                 help='Excel mit Q-End-Werten überschreiben (sonst nur Dry-Run).')
-_args, _ = _ap.parse_known_args()
-if _args.q_end == 'AUTO':
-    _args.q_end = previous_q_label()
-    print(f'Q-End-Routine Auto-Modus: letztes abgeschlossenes Quartal = {_args.q_end}')
+def _main():
+    import argparse
+    _ap = argparse.ArgumentParser()
+    _ap.add_argument('--q-end', metavar='YYYY-QN', nargs='?', const='AUTO',
+                     help='Q-End-Routine ausführen. Ohne Argument: vorheriges abgeschlossenes Q (für Cron-Auto-Trigger).')
+    _ap.add_argument('--save-excel', action='store_true',
+                     help='Excel mit Q-End-Werten überschreiben (sonst nur Dry-Run).')
+    _args, _ = _ap.parse_known_args()
+    if _args.q_end == 'AUTO':
+        _args.q_end = previous_q_label()
+        print(f'Q-End-Routine Auto-Modus: letztes abgeschlossenes Quartal = {_args.q_end}')
 
-print('Lade Excel...')
-wb = openpyxl.load_workbook(EXCEL, data_only=False)
-ws_d = wb['Daten']
-load_stufen_aus_excel(wb)
-print(f'  Stufen-Schwellen aus Excel: '
-      + ', '.join(f'{s["n"]}={s["eur60"]:.2f}€/h@zufr{s["zufr"]:.1f}' for s in STUFEN))
+    print('Lade Excel...')
+    wb = openpyxl.load_workbook(EXCEL, data_only=False)
+    ws_d = wb['Daten']
+    load_stufen_aus_excel(wb)
+    print(f'  Stufen-Schwellen aus Excel: '
+          + ', '.join(f'{s["n"]}={s["eur60"]:.2f}€/h@zufr{s["zufr"]:.1f}' for s in STUFEN))
 
-# Q-End-Routine (optional)
-if _args.q_end:
-    run_q_end_routine(wb, ws_d, _args.q_end)
-    if _args.save_excel:
-        wb.save(EXCEL)
-        print(f'\n✅ Excel gespeichert: {EXCEL}')
-    else:
-        print('\n(Dry-Run — Excel nicht gespeichert. Mit --save-excel überschreiben.)')
+    # Q-End-Routine (optional)
+    if _args.q_end:
+        run_q_end_routine(wb, ws_d, _args.q_end)
+        if _args.save_excel:
+            wb.save(EXCEL)
+            print(f'\n✅ Excel gespeichert: {EXCEL}')
+        else:
+            print('\n(Dry-Run — Excel nicht gespeichert. Mit --save-excel überschreiben.)')
 
-os.makedirs(OUT_DIR, exist_ok=True)
+    os.makedirs(OUT_DIR, exist_ok=True)
 
-for pm_cfg in PMS:
-    print(f'  {pm_cfg["name"]}...')
-    pm_data = compute_pm(ws_d, pm_cfg)
-    if not pm_data:
-        print(f'    übersprungen (keine Daten)')
-        continue
-    
-    html_out = render_html(pm_data)
-    TOKENS = {'Laura': '8278b207ba9e80605ae5f1604d696759', 'Marleen': '0093979f8cf4df0f67ec20b6e35e6beb', 'Luise': '52981192518b734a346928ed713bc015', 'Max': '5051837ce5b8f243f109306f60136f17'}
-    token = TOKENS.get(pm_cfg["name"], "")
-    out_path = os.path.join(OUT_DIR, f'{pm_cfg["name"].lower()}-{token}.html')
-    with open(out_path, 'w') as f:
-        f.write(html_out)
-    print(f'    → {out_path}  (Stufe {pm_data["tats_stufe"]}, {fmt_eur(pm_data["monatsgehalt"])} €/Monat)')
+    for pm_cfg in PMS:
+        print(f'  {pm_cfg["name"]}...')
+        pm_data = compute_pm(ws_d, pm_cfg)
+        if not pm_data:
+            print(f'    übersprungen (keine Daten)')
+            continue
 
-print('\nFertig.')
+        html_out = render_html(pm_data)
+        TOKENS = {'Laura': '8278b207ba9e80605ae5f1604d696759', 'Marleen': '0093979f8cf4df0f67ec20b6e35e6beb', 'Luise': '52981192518b734a346928ed713bc015', 'Max': '5051837ce5b8f243f109306f60136f17'}
+        token = TOKENS.get(pm_cfg["name"], "")
+        out_path = os.path.join(OUT_DIR, f'{pm_cfg["name"].lower()}-{token}.html')
+        with open(out_path, 'w') as f:
+            f.write(html_out)
+        print(f'    → {out_path}  (Stufe {pm_data["tats_stufe"]}, {fmt_eur(pm_data["monatsgehalt"])} €/Monat)')
+
+    print('\nFertig.')
+
+
+if __name__ == '__main__':
+    _main()
