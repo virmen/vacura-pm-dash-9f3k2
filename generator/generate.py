@@ -149,40 +149,93 @@ TOKENS = {}   # Name → 32-hex-Token, aus PM-Stammdaten gelesen
 def load_pms_from_excel(workbook):
     """Liest PM-Stammdaten aus Excel-Tab 'PM-Stammdaten' und befüllt globales PMS + TOKENS.
 
+    Auto-Fix-Verhalten (Excel-first-Workflow):
+    - **Token leer** → automatisch generieren (`secrets.token_hex(16)`) und ins Excel zurückschreiben
+    - **Farbe leer** → Default `#0D595A` setzen
+    - **Aktiv leer** → True (aktiv) annehmen
+    - **PM in Daten-Tab fehlt** → Stammdaten automatisch dorthin spiegeln (mit Stufe Vorquartal=1)
+
+    Returns: True wenn Workbook geändert wurde (Caller muss wb.save() aufrufen).
+
     Schema (Sheet 'PM-Stammdaten'):
     Spalte 1=Name, 2=Wochenstd, 3=PM-Std Bundle, 4=Mindestgehalt, 5=Startdatum,
     6=Bundle-Standorte, 7=Bundle-PMs (komma-Liste), 8=Farbe (#RRGGBB),
     9=URL-Token (32-hex), 10=Aktiv (bool).
 
-    Inaktive PMs werden übersprungen. Bei mehrfach gleicher Name nimmt den ersten.
+    Inaktive PMs (Aktiv=False) werden übersprungen — Stammdaten bleiben aber zum Lesen erhalten.
     """
+    import secrets
     global PMS, TOKENS
     if 'PM-Stammdaten' not in workbook.sheetnames:
-        return  # leeres PMS belassen
+        return False
     ws = workbook['PM-Stammdaten']
+    ws_daten = workbook['Daten'] if 'Daten' in workbook.sheetnames else None
+    changed = False
+
     pms = []
     tokens = {}
     for r in range(6, 50):
         name = ws.cell(row=r, column=1).value
         wochenstd = ws.cell(row=r, column=2).value
         # Nur Zeilen mit echtem PM-Namen + numerischer Wochenstunden-Zelle akzeptieren
-        # (filtert Notiz-/Hinweis-Zeilen raus)
         if not name or not isinstance(name, str) or not isinstance(wochenstd, (int, float)):
             continue
+        name = name.strip()
+
+        # Aktiv: leer → True
         aktiv = ws.cell(row=r, column=10).value
+        if aktiv is None:
+            ws.cell(row=r, column=10, value=True)
+            aktiv = True
+            changed = True
         if aktiv is False or (isinstance(aktiv, str) and aktiv.lower() in ('nein', 'no', 'false', '0')):
             continue
+
+        # Farbe: leer → Default
+        farbe = ws.cell(row=r, column=8).value
+        if not farbe:
+            farbe = '#0D595A'
+            ws.cell(row=r, column=8, value=farbe)
+            changed = True
+
+        # Token: leer → automatisch erzeugen + zurückschreiben
+        token = ws.cell(row=r, column=9).value
+        if not token:
+            token = secrets.token_hex(16)
+            ws.cell(row=r, column=9, value=token)
+            changed = True
+            print(f'  🔑 Token für {name} automatisch erzeugt: {token}')
+
         bundle_pms_raw = ws.cell(row=r, column=7).value or ''
         pms.append({
-            'name': name.strip(),
-            'color': ws.cell(row=r, column=8).value or '#0D595A',
+            'name': name,
+            'color': farbe,
             'bundle_pms': [p.strip() for p in str(bundle_pms_raw).split(',') if p.strip()],
             'bundle_standorte': ws.cell(row=r, column=6).value or '',
         })
-        token = ws.cell(row=r, column=9).value
-        if token: tokens[name.strip()] = str(token).strip()
+        tokens[name] = str(token).strip()
+
+        # Daten-Tab-Sync: wenn dort noch keine Zeile für diesen PM existiert, Stammdaten spiegeln
+        if ws_daten is not None and not _find_pm_row(ws_daten, name):
+            # Erste freie Zeile finden
+            free_r = 5
+            while ws_daten.cell(row=free_r, column=2).value:
+                free_r += 1
+            pm_std_bundle = ws.cell(row=r, column=3).value
+            mindestgehalt = ws.cell(row=r, column=4).value
+            startdatum = ws.cell(row=r, column=5).value
+            ws_daten.cell(row=free_r, column=1, value=startdatum)
+            ws_daten.cell(row=free_r, column=2, value=name)
+            ws_daten.cell(row=free_r, column=3, value=wochenstd)
+            ws_daten.cell(row=free_r, column=4, value=pm_std_bundle)
+            ws_daten.cell(row=free_r, column=5, value=1)   # Stufe Vorquartal default
+            ws_daten.cell(row=free_r, column=6, value=mindestgehalt)
+            changed = True
+            print(f'  ✓ {name} in Daten-Tab gespiegelt (Zeile {free_r}, Stufe Vorquartal=1)')
+
     PMS = pms
     TOKENS = tokens
+    return changed
 
 def th_kumuliert(n_th):
     """TH-Zulage kumuliert für n TH-Äquivalente."""
@@ -2532,7 +2585,10 @@ def _main():
     wb = openpyxl.load_workbook(EXCEL, data_only=False)
     ws_d = wb['Daten']
     load_stufen_aus_excel(wb)
-    load_pms_from_excel(wb)
+    pms_changed = load_pms_from_excel(wb)
+    if pms_changed:
+        wb.save(EXCEL)
+        print('  💾 Excel mit auto-erzeugten Tokens/Defaults gespeichert.')
     print(f'  PMs aus Excel: {", ".join(p["name"] for p in PMS)} ({len(PMS)} aktive)')
     print(f'  Stufen-Schwellen: '
           + ', '.join(f'{s["n"]}={s["eur60"]:.2f}€/h@zufr{s["zufr"]:.1f}' for s in STUFEN))

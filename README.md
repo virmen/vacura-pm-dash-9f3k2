@@ -36,14 +36,20 @@ Deploy-Repo (separat): virmen/vacura-pm-dash-9f3k2
 
 ## Neuen PM anlegen
 
-Ein einziger Befehl — interaktiver Wizard, schreibt Excel automatisch:
+**Excel-First-Workflow** — kein Terminal nötig, jeder kann's:
 
-```bash
-cd ~/Code/Claude/Github/pm-dashboards/v2
-python3 add_pm.py
-```
+1. Excel öffnen → Tab `PM-Stammdaten` → neue Zeile anhängen
+2. Felder ausfüllen: Name, Wochenstd, PM-Std-Bundle, Mindestgehalt, Startdatum, Bundle-Standorte, Bundle-PMs
+3. **Spalte 8 (Farbe), 9 (Token), 10 (Aktiv) leer lassen** — werden beim nächsten Dashboard-Lauf automatisch befüllt
+4. Speichern, fertig
 
-Du gibst nur ein: Name, Wochenstunden, Bundle, Mindestgehalt. Token wird automatisch erzeugt, Eintrag in `PM-Stammdaten` + `Daten`-Tab parallel. Bei nächstem `generate.py` ist der neue PM dabei.
+Beim nächsten `python3 generate.py` (lokal) oder beim Daily-Workflow um 06:00 Berlin (Cloud) macht der Code automatisch:
+- Token erzeugen (`secrets.token_hex(16)`) und ins Excel zurückschreiben
+- Default-Farbe setzen falls leer
+- Aktiv-Flag auf TRUE setzen falls leer
+- Daten-Tab Stammdaten-Spalten 1–6 spiegeln (Stufe Vorquartal = 1)
+
+**PM deaktivieren** (z. B. bei Austritt): Spalte 10 auf `FALSE` setzen. Excel-Historie bleibt erhalten, Code überspringt aber den Eintrag.
 
 ## Schneller Start
 
