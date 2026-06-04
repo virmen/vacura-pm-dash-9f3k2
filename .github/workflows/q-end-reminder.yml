@@ -20,13 +20,11 @@ jobs:
         with:
           script: |
             const today = new Date();
-            const m = today.getMonth() + 1;
-            // Welches Q wird in 7 Tagen automatisch bewertet?
-            let qLabel;
-            if (m === 1)      qLabel = `${today.getFullYear() - 1}-Q4`;
-            else if (m === 4) qLabel = `${today.getFullYear()}-Q1`;
-            else if (m === 7) qLabel = `${today.getFullYear()}-Q2`;
-            else              qLabel = `${today.getFullYear()}-Q3`;
+            const m = today.getMonth() + 1;     // 1-12
+            const y = today.getFullYear();
+            const q_now = Math.ceil(m / 3);     // 1-4
+            // Welches Q wird in 7 Tagen automatisch bewertet? = letztes abgeschlossenes Q
+            const qLabel = q_now === 1 ? `${y - 1}-Q4` : `${y}-Q${q_now - 1}`;
 
             await github.rest.issues.create({
               owner: context.repo.owner,
