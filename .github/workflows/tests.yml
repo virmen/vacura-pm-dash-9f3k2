@@ -1,0 +1,42 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'generator/**'
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: generator/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r generator/requirements.txt
+
+      - name: Run unit tests (ohne NocoDB)
+        # Tarif-Logik + Wochenstunden-Berechnung — schnell, netzwerk-unabhängig
+        run: |
+          cd generator
+          python3 -m pytest tests/test_termin_umsatz.py tests/test_th_stunden_am_werktag.py -v
+
+      - name: Run Q1-Sanity-Integration-Tests
+        # Liest Excel im Repo (generator/PM_Gehaltsmodell_v18.xlsx)
+        # KEIN NocoDB-Zugriff — testet nur compute_pm gegen historische Werte
+        env:
+          EXCEL_PATH: ${{ github.workspace }}/generator/PM_Gehaltsmodell_v18.xlsx
+        run: |
+          cd generator
+          python3 -m pytest tests/test_q1_sanity.py -v

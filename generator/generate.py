@@ -230,20 +230,11 @@ def compute_pm(ws_daten, pm):
     th_pm = round(th_bundle * wochenstd / pm_std_bundle)
 
     # Probezeit-Check (PM-Vertrag § 8 Abs. 3): erste 6 Monate Stufe 1, Bundle-Zulage 0 €
-    probezeit_aktiv = False
-    if startdatum:
-        try:
-            from datetime import date as _date, datetime as _dt
-            sd = startdatum.date() if hasattr(startdatum, 'date') else (
-                _date.fromisoformat(startdatum[:10]) if isinstance(startdatum, str) else startdatum)
-            # Q1 2026 endete am 31.3. — Bewertung gilt für Q-Start = 1.4.
-            q_eval_end = _date(2026, 3, 31)  # Vorquartal-Ende
-            jahre = q_eval_end.year - sd.year
-            monate = q_eval_end.month - sd.month
-            monatsdiff = jahre * 12 + monate
-            if monatsdiff < 6:
-                probezeit_aktiv = True
-        except Exception: pass
+    # Q-Bewertungs-Ende = Excel-Q1-Ende (2026-03-31). Bei späteren Q wird compute_quartal genutzt,
+    # die hat ihr eigenes q_end. Hier hardcoded ist akzeptabel solange compute_pm nur Q1 liest.
+    from datetime import date as _ddate
+    q_eval_end = _ddate(2026, 3, 31)
+    probezeit_aktiv = is_probezeit(startdatum, q_eval_end)
 
     # Gehalt
     if probezeit_aktiv:
@@ -1291,6 +1282,23 @@ BERLIN_FEIERTAGE = {
     '2027-10-03', '2027-12-25', '2027-12-26',
 }
 
+def is_probezeit(startdatum, q_eval_end):
+    """True wenn PM am q_eval_end weniger als 6 Monate beschäftigt war (§ 8 Abs. 3 v9-Vertrag).
+
+    Gemeinsame Helper-Funktion für compute_pm und compute_quartal — eine einzige
+    Wahrheit für die Probezeit-Regel, damit beide Pfade niemals auseinanderdriften.
+    """
+    if not startdatum: return False
+    try:
+        from datetime import date as _date
+        sd = startdatum.date() if hasattr(startdatum, 'date') else (
+            _date.fromisoformat(startdatum[:10]) if isinstance(startdatum, str) else startdatum)
+        monatsdiff = (q_eval_end.year - sd.year) * 12 + (q_eval_end.month - sd.month)
+        return monatsdiff < 6
+    except Exception:
+        return False
+
+
 def _th_earliest_beschaeftigung(m):
     """Frühestes Beschäftigungs-Von-Datum (ISO) für 29-Tage-Sperre."""
     bz = m.get('beschaeftigungszeiten') or []
@@ -1350,21 +1358,8 @@ def compute_quartal(pm, q_start, q_end, today=None):
 
     bundle_standorte = [s.strip().lower().replace(' ', '_') for s in pm['bundle_standorte'].split(',')]
 
-    # Probezeit-Check (PM-Vertrag § 8 Abs. 3: erste 6 Monate Stufe 1, keine Bundle-Zulage)
-    probezeit_aktiv = False
-    if pm.get('startdatum'):
-        try:
-            from datetime import datetime as _dt
-            sd = pm['startdatum']
-            if hasattr(sd, 'date'): sd = sd.date()
-            elif isinstance(sd, str): sd = _date.fromisoformat(sd[:10])
-            # 6 Monate vor q_end
-            jahre = q_end.year - sd.year
-            monate = q_end.month - sd.month
-            tage_diff_in_monate = jahre * 12 + monate
-            if tage_diff_in_monate < 6:
-                probezeit_aktiv = True
-        except Exception: pass
+    # Probezeit-Check (PM-Vertrag § 8 Abs. 3) — gemeinsame Helper-Funktion
+    probezeit_aktiv = is_probezeit(pm.get('startdatum'), q_end)
 
     # Bundle-TH: Beschäftigung überlappt mit Q-Fenster UND Start ≤ effective_end - 29 Tage
     ma = _fetch_all('mc934lbrlg7w6e1')
