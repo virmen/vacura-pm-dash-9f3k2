@@ -79,5 +79,5 @@ jobs:
 
               Bei Auffälligkeiten: nicht freigeben, Ursache klären.
 
-              Methodik: siehe \`pm-dashboards/v2/METHODE.md\` im Code-Repo.`
+              Methodik: siehe \`code/METHODE.md\` im Code-Repo.`
             });

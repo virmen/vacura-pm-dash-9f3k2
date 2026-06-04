@@ -12,7 +12,7 @@ from datetime import datetime, date
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 EXCEL = os.environ.get('EXCEL_PATH') or os.path.expanduser('~/Code/Claude/Github/pm-dashboards/PM_Gehaltsmodell.xlsx')
-OUT_DIR = os.environ.get('OUT_DIR') or os.path.expanduser('~/Code/Claude/Github/pm-dashboards/v2')
+OUT_DIR = os.environ.get('OUT_DIR') or os.path.expanduser('~/Code/Claude/Github/pm-dashboards/code')
 
 # PKV/SZ-Aufschlag auf GKV-Tarif. Wirkt sich auf IST aus (termin_umsatz) und auf
 # den Hebel-Faktor (1 %-Pkt PKV ≈ (PKV_FAKTOR-1)*100 % Umsatz). Schwellen in STUFEN
