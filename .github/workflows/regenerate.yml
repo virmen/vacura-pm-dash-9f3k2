@@ -29,7 +29,7 @@ jobs:
       - name: Generate dashboards
         env:
           NOCODB_TOKEN: ${{ secrets.NOCODB_TOKEN }}
-          EXCEL_PATH: ${{ github.workspace }}/generator/PM_Gehaltsmodell_v18.xlsx
+          EXCEL_PATH: ${{ github.workspace }}/generator/PM_Gehaltsmodell.xlsx
           OUT_DIR: ${{ github.workspace }}
         run: python3 generator/generate.py
 

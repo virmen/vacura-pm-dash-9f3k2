@@ -37,7 +37,7 @@ jobs:
       - name: Q-End-Routine ausführen
         env:
           NOCODB_TOKEN: ${{ secrets.NOCODB_TOKEN }}
-          EXCEL_PATH: ${{ github.workspace }}/generator/PM_Gehaltsmodell_v18.xlsx
+          EXCEL_PATH: ${{ github.workspace }}/generator/PM_Gehaltsmodell.xlsx
           OUT_DIR: ${{ github.workspace }}
           Q_LABEL: ${{ github.event.inputs.quartal }}
         run: |
@@ -51,7 +51,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add generator/PM_Gehaltsmodell_v18.xlsx '*.html'
+          git add generator/PM_Gehaltsmodell.xlsx '*.html'
           if git diff --cached --quiet; then
             echo "Keine Änderungen — Q-End war vermutlich schon gelaufen."
             exit 0

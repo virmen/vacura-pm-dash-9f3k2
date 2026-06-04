@@ -32,24 +32,23 @@ jobs:
               title: `⏰ Q-End-Routine ${qLabel} läuft in 7 Tagen — Excel vorbereiten`,
               body: `Die automatische Q-End-Bewertung für **${qLabel}** läuft am **8. dieses Monats** um 03:00 UTC.
 
-              Bitte vorher im Excel \`PM_Gehaltsmodell_v18.xlsx\` eintragen:
+              Bitte vorher im Excel \`PM_Gehaltsmodell.xlsx\` im Tab **Quartals-Bewertungen** eintragen:
 
-              ### 1. Zufriedenheits-Scores (Tab "Daten" Spalten 11-13)
-              - Rücken-Score (0-10)
-              - Kommunikations-Score (0-10)
-              - eNPS-Score (0-10)
+              **Pro PM (Laura/Marleen/Luise/Max) eine Zeile, 4 gelbe Spalten ausfüllen:**
 
-              Werte aus der Q-Umfrage übernehmen. **Ohne diese Werte fällt die Stufen-Bewertung falsch aus.**
+              - **Rücken-Score** (0-10) aus Q-Umfrage
+              - **Komm-Score** (0-10) aus Q-Umfrage
+              - **eNPS-Score** (0-10) aus Q-Umfrage
+              - **MediFox-IST €** — Bundle-Umsatz aus MediFox-Export für das Quartal
 
-              ### 2. MediFox-IST eintragen (Tab "Sanity (MediFox)")
-              - Pro Bundle den MediFox-IST-Export für ${qLabel}
-              - Wird automatisch mit NocoDB-IST verglichen — Diff < 2 % normal
+              Werte aus der Quartals-Umfrage (anonym, ≥60 % Teilnahme) + MediFox-Export.
+              **Ohne diese Werte fällt die Stufen-Bewertung falsch aus** (Zufriedenheit-Schwelle nicht prüfbar).
 
-              ### 3. Stammdaten-Check (falls Personal-Wechsel)
-              - Tab "Daten" Spalten 1-6: stimmen Wochenstunden, Bundle-Zuordnung, Mindestgehalt?
+              **Bei Personal-Wechsel:** Tab \`PM-Stammdaten\` aktualisieren.
 
-              **Wenn nichts geändert wird:** die Routine läuft trotzdem und nimmt die vorhandenen Werte
-              — Zufriedenheit dann aus Vorquartal, MediFox-Sanity-Check fällt aus.
+              **Wenn nichts geändert wird:** die Routine läuft trotzdem mit den vorhandenen Werten —
+              Status-Spalte zeigt dann an, was fehlt.
 
-              Methodik: siehe \`pm-dashboards/v2/METHODE.md\``
+              Vollständige Anleitung: \`ANLEITUNG_QUARTALSWECHSEL.md\` im Repo-Root.
+              Berechnungs-Methodik: \`METHODE.md\``
             });

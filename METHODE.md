@@ -362,7 +362,7 @@ Die neuen Werte sind methodisch sauberer, aber die alten gelten als Bewertungsgr
 
 ## 12. Querverweise
 
-- **Code:** `~/Code/Claude/Github/pm-dashboards/v2/generate.py`
+- **Code:** `~/Code/Claude/Github/pm-dashboards/code/generate.py`
 - **Excel-Modell:** `~/Code/Claude/Github/pm-dashboards/PM_Gehaltsmodell_v18.xlsx`
 - **Deploy-Repo:** `virmen/vacura-pm-dash-9f3k2` → GitHub Pages
 - **Vergütungswerte:** Memory `reference_verguetungswerte.md`

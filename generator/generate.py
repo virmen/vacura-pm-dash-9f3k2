@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generator für PM-Dashboard-HTMLs v2 (für PM_Gehaltsmodell_v18.xlsx).
+Generator für PM-Dashboard-HTMLs v2 (für PM_Gehaltsmodell.xlsx).
 
 Liest v18 Excel + rechnet KPIs selbst aus (keine Excel-Cache-Voraussetzung).
 Generiert eine HTML pro PM mit dem 9-Block Roten Faden.
@@ -11,7 +11,7 @@ import openpyxl, os, sys, html, json
 from datetime import datetime, date
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-EXCEL = os.environ.get('EXCEL_PATH') or os.path.expanduser('~/Code/Claude/Github/pm-dashboards/PM_Gehaltsmodell_v18.xlsx')
+EXCEL = os.environ.get('EXCEL_PATH') or os.path.expanduser('~/Code/Claude/Github/pm-dashboards/PM_Gehaltsmodell.xlsx')
 OUT_DIR = os.environ.get('OUT_DIR') or os.path.expanduser('~/Code/Claude/Github/pm-dashboards/v2')
 
 # PKV/SZ-Aufschlag auf GKV-Tarif. Wirkt sich auf IST aus (termin_umsatz) und auf
@@ -169,7 +169,6 @@ def load_pms_from_excel(workbook):
     if 'PM-Stammdaten' not in workbook.sheetnames:
         return False
     ws = workbook['PM-Stammdaten']
-    ws_daten = workbook['Daten'] if 'Daten' in workbook.sheetnames else None
     changed = False
 
     pms = []
@@ -207,31 +206,22 @@ def load_pms_from_excel(workbook):
             print(f'  🔑 Token für {name} automatisch erzeugt: {token}')
 
         bundle_pms_raw = ws.cell(row=r, column=7).value or ''
+        # Stammdaten komplett aus PM-Stammdaten-Sheet — kein Daten-Tab-Sync mehr nötig
+        pm_std_bundle = ws.cell(row=r, column=3).value
+        mindestgehalt = ws.cell(row=r, column=4).value
+        startdatum = ws.cell(row=r, column=5).value
+
         pms.append({
             'name': name,
             'color': farbe,
+            'wochenstd': wochenstd,
+            'pm_std_bundle': pm_std_bundle,
+            'mindestgehalt': mindestgehalt,
+            'startdatum': startdatum,
             'bundle_pms': [p.strip() for p in str(bundle_pms_raw).split(',') if p.strip()],
             'bundle_standorte': ws.cell(row=r, column=6).value or '',
         })
         tokens[name] = str(token).strip()
-
-        # Daten-Tab-Sync: wenn dort noch keine Zeile für diesen PM existiert, Stammdaten spiegeln
-        if ws_daten is not None and not _find_pm_row(ws_daten, name):
-            # Erste freie Zeile finden
-            free_r = 5
-            while ws_daten.cell(row=free_r, column=2).value:
-                free_r += 1
-            pm_std_bundle = ws.cell(row=r, column=3).value
-            mindestgehalt = ws.cell(row=r, column=4).value
-            startdatum = ws.cell(row=r, column=5).value
-            ws_daten.cell(row=free_r, column=1, value=startdatum)
-            ws_daten.cell(row=free_r, column=2, value=name)
-            ws_daten.cell(row=free_r, column=3, value=wochenstd)
-            ws_daten.cell(row=free_r, column=4, value=pm_std_bundle)
-            ws_daten.cell(row=free_r, column=5, value=1)   # Stufe Vorquartal default
-            ws_daten.cell(row=free_r, column=6, value=mindestgehalt)
-            changed = True
-            print(f'  ✓ {name} in Daten-Tab gespiegelt (Zeile {free_r}, Stufe Vorquartal=1)')
 
     PMS = pms
     TOKENS = tokens
@@ -269,39 +259,126 @@ def resolve_formula(ws, r, c, max_depth=3):
         return resolve_formula(ws, row, col, max_depth-1)
     return None
 
+def _find_qb_row(ws_qb, quartal_label, name):
+    """Findet Zeile in Quartals-Bewertungen für (quartal_label, PM-Name).
+    Spalten: 1=Quartal (z.B. 'Q1 2026'), 2=PM. Header in Row 7. Daten ab Row 8.
+    Returns Row-Nr oder None."""
+    for r in range(8, 200):
+        q = ws_qb.cell(row=r, column=1).value
+        n = ws_qb.cell(row=r, column=2).value
+        if isinstance(q, str) and isinstance(n, str) and q.strip() == quartal_label and n.strip() == name:
+            return r
+    return None
+
+
+def _q_label_from_date(d):
+    """date → 'Q1 2026' / 'Q2 2026' / ..."""
+    return f'Q{(d.month - 1) // 3 + 1} {d.year}'
+
+
+def _previous_q_label_from(quartal_label):
+    """'Q2 2026' → 'Q1 2026'; 'Q1 2027' → 'Q4 2026'."""
+    parts = quartal_label.split(' ')
+    q_num = int(parts[0][1:])
+    year = int(parts[1])
+    if q_num == 1:
+        return f'Q4 {year - 1}'
+    return f'Q{q_num - 1} {year}'
+
+
 def _find_pm_row(ws_daten, name):
-    """Findet die Daten-Tab-Row eines PMs per Name (statt fester Row-Konstante).
-    Daten-Tab hat ab Row 5 PMs in Spalte 2. Bei Name nicht gefunden: None."""
+    """LEGACY: Findet die Daten-Tab-Row eines PMs per Name.
+    Wird nicht mehr genutzt seit Daten-Tab entfernt — bleibt für Backwards-Compat."""
+    if ws_daten is None: return None
     for r in range(5, 30):
         v = ws_daten.cell(row=r, column=2).value
         if v and isinstance(v, str) and v.strip() == name:
             return r
     return None
 
-def compute_pm(ws_daten, pm):
-    # Row dynamisch finden (per Name) — kein hardcoded 'row' mehr nötig
-    r = pm.get('row') or _find_pm_row(ws_daten, pm['name'])
-    if not r:
-        print(f"    ⚠️  Daten-Tab hat keine Zeile für {pm['name']!r}, übersprungen")
+def compute_pm(wb_or_ws, pm, q_label='Q1 2026'):
+    """Berechnet PM-Q-Bewertung aus Excel.
+
+    Stammdaten kommen aus pm-Dict (geladen via load_pms_from_excel).
+    Q-Werte (IST, Vstd, Abw, Zufriedenheit) kommen aus Quartals-Bewertungen-Sheet.
+
+    Args:
+        wb_or_ws: Workbook (neuer Standard) ODER Daten-Tab (Legacy für Backwards-Compat).
+        pm: dict mit 'name', 'wochenstd', 'pm_std_bundle', 'mindestgehalt', 'startdatum',
+            'bundle_standorte', 'color', etc.
+        q_label: Quartal-Label ('Q1 2026' = historisch-Default).
+
+    Returns: dict mit pm-Daten + Q-Bewertung, oder None wenn Q-Werte fehlen.
+    """
+    # Workbook ermitteln
+    if hasattr(wb_or_ws, 'sheetnames'):
+        wb = wb_or_ws
+    else:
+        # Legacy: ws_daten übergeben — finde das Workbook
+        wb = wb_or_ws.parent
+    if 'Quartals-Bewertungen' not in wb.sheetnames:
+        print(f"    ⚠️  Sheet 'Quartals-Bewertungen' fehlt, übersprungen")
         return None
-    # Stammdaten (static)
-    wochenstd = ws_daten.cell(row=r, column=3).value
-    pm_std_bundle = ws_daten.cell(row=r, column=4).value
-    start_stufe = ws_daten.cell(row=r, column=5).value or 1
-    mindestgehalt = ws_daten.cell(row=r, column=6).value
-    startdatum = ws_daten.cell(row=r, column=1).value
-    
-    # Q1 2026 Daten (mit Formel-Auflösung für Luise/Max)
-    vstd_bundle = resolve_formula(ws_daten, r, 7)
-    vstd_ber    = resolve_formula(ws_daten, r, 8)
-    abw_ber     = resolve_formula(ws_daten, r, 9)
-    ist         = resolve_formula(ws_daten, r, 10)
-    ruecken     = resolve_formula(ws_daten, r, 11) or 0
-    komm        = resolve_formula(ws_daten, r, 12) or 0
-    enps        = resolve_formula(ws_daten, r, 13) or 0
-    
-    if not all([vstd_bundle, vstd_ber, abw_ber, ist]):
+    ws_qb = wb['Quartals-Bewertungen']
+
+    # Stammdaten direkt aus pm-Dict (kommt aus PM-Stammdaten)
+    wochenstd = pm.get('wochenstd')
+    pm_std_bundle = pm.get('pm_std_bundle')
+    mindestgehalt = pm.get('mindestgehalt')
+    startdatum = pm.get('startdatum')
+
+    if not all([wochenstd, pm_std_bundle, mindestgehalt]):
+        print(f"    ⚠️  Unvollständige Stammdaten für {pm['name']}, übersprungen")
         return None
+
+    # Q-Werte aus Quartals-Bewertungen
+    qb_row = _find_qb_row(ws_qb, q_label, pm['name'])
+    if not qb_row:
+        print(f"    ⚠️  Keine Q-Bewertungs-Zeile für ({q_label}, {pm['name']}), übersprungen")
+        return None
+
+    # Spalten in Quartals-Bewertungen:
+    # 3=Rücken, 4=Komm, 5=eNPS, 6=MediFox, 7=Zufr-Score (berechnet),
+    # 8=Vstd, 9=Abw, 10=Feiertage, 11=IST, 12=verfueg, 13=eur60,
+    # 14=Rechn-Stufe, 15=Tats-Stufe, 16=Probezeit, 17=Diff
+    ruecken = ws_qb.cell(row=qb_row, column=3).value or 0
+    komm    = ws_qb.cell(row=qb_row, column=4).value or 0
+    enps    = ws_qb.cell(row=qb_row, column=5).value or 0
+    vstd_ber = ws_qb.cell(row=qb_row, column=8).value
+    abw_ber  = ws_qb.cell(row=qb_row, column=9).value
+    ist      = ws_qb.cell(row=qb_row, column=11).value
+
+    # Probezeit prüfen (für Q-Bewertungs-Ende ermittelt)
+    from datetime import date as _ddate
+    parts = q_label.split(' ')
+    q_num_x = int(parts[0][1:])
+    year_x = int(parts[1])
+    q_end_month = q_num_x * 3
+    q_end_day = 31 if q_end_month in (3, 12) else 30
+    q_eval_end = _ddate(year_x, q_end_month, q_end_day)
+    probezeit_aktiv = is_probezeit(startdatum, q_eval_end)
+
+    # Probezeit-PMs: kein Q-IST/Vstd nötig — gehen automatisch auf Stufe 1, Mindestgehalt-Pfad
+    if probezeit_aktiv:
+        # Synthetische Werte, damit Render-Logik nicht crasht
+        vstd_ber = vstd_ber or 1
+        abw_ber  = abw_ber  or 0
+        ist      = ist      or 0
+    elif not all([vstd_ber, abw_ber, ist]):
+        # Reguläre PMs ohne Q-Werte: nicht bewertbar (z.B. Q2 vor Q-End-Routine)
+        return None
+
+    # Start-Stufe aus Vorquartal-tats_stufe (für ±1-Deckel)
+    prev_q = _previous_q_label_from(q_label)
+    prev_row = _find_qb_row(ws_qb, prev_q, pm['name'])
+    start_stufe = 1
+    if prev_row:
+        v = ws_qb.cell(row=prev_row, column=15).value
+        if isinstance(v, (int, float)): start_stufe = int(v)
+
+    # Vstd-Bundle (für Bundle-Zulage) — nicht im Q-Bewertungs-Sheet, sondern hochgerechnet
+    # aus PM-Std-Bundle und Wochenstunden-Verhältnis. Vereinfachung: vstd_ber als Proxy.
+    vstd_bundle = vstd_ber
     
     # Ableitung
     verfueg = vstd_ber - abw_ber
@@ -325,16 +402,10 @@ def compute_pm(ws_daten, pm):
         tats = rechn
     
     # TH-Äqui für Bundle-Zulage (Stichtagswert — keine 29-Tage-Sperre, siehe Memory)
-    th_bundle = round(vstd_bundle / 13 / 30)
-    th_pm = round(th_bundle * wochenstd / pm_std_bundle)
+    th_bundle = round(vstd_bundle / 13 / 30) if vstd_bundle else 0
+    th_pm = round(th_bundle * wochenstd / pm_std_bundle) if pm_std_bundle else 0
 
-    # Probezeit-Check (PM-Vertrag § 8 Abs. 3): erste 6 Monate Stufe 1, Bundle-Zulage 0 €
-    # Q-Bewertungs-Ende = Excel-Q1-Ende (2026-03-31). Bei späteren Q wird compute_quartal genutzt,
-    # die hat ihr eigenes q_end. Hier hardcoded ist akzeptabel solange compute_pm nur Q1 liest.
-    from datetime import date as _ddate
-    q_eval_end = _ddate(2026, 3, 31)
-    probezeit_aktiv = is_probezeit(startdatum, q_eval_end)
-
+    # Probezeit wurde oben schon ermittelt (mit korrektem q_eval_end aus q_label)
     # Gehalt
     if probezeit_aktiv:
         tats = 1
@@ -419,6 +490,8 @@ def hebel_optionen(pm_data, gap_data, live_kpis):
     """
     if not gap_data:
         return None
+    if not pm_data.get('eur60') or pm_data['eur60'] <= 0:
+        return None   # Probezeit-PMs ohne Q-Werte → keine Hebel
     delta_pct = gap_data['delta_eur60'] / pm_data['eur60'] * 100
     if delta_pct <= 0:
         return None
@@ -2493,77 +2566,82 @@ def previous_q_label(today=None):
 # Historisch eingefrorene Quartale — werden niemals von Q-End-Routine überschrieben
 Q_LABELS_EINGEFROREN = {'2026-Q1'}
 
-def run_q_end_routine(wb, ws_daten, q_label):
-    """Q-End-Berechnung: schreibt Audit-Sheet, updated Stufe Vorquartal in Daten.
+def run_q_end_routine(wb, q_label):
+    """Q-End-Berechnung: schreibt Werte ins Quartals-Bewertungen-Sheet (Long-Format).
 
-    Returns list of result dicts pro PM für weitere Verarbeitung (z.B. Dashboard-Render).
-    Wirft RuntimeError wenn Q-Label in Q_LABELS_EINGEFROREN ist (Schutz vor versehentlichem
-    Überschreiben historischer Bewertungen).
+    Stufe-Vorquartal wird automatisch aus der letzten tats_stufe der vorherigen Zeile
+    in Quartals-Bewertungen abgeleitet (kein manuelles Update mehr nötig).
+
+    Schutz vor Überschreiben eingefrorener Quartale: Q_LABELS_EINGEFROREN.
     """
     if q_label in Q_LABELS_EINGEFROREN:
         raise RuntimeError(
             f'{q_label} ist als historisch eingefroren markiert. '
-            f'Audit-Sheet darf nicht überschrieben werden. '
+            f'Quartals-Bewertungen-Zeile darf nicht überschrieben werden. '
             f'Wenn das wirklich gewollt ist: Q_LABELS_EINGEFROREN in generate.py editieren.'
         )
-    q_start, q_end, audit_name = parse_q_label(q_label)
+    q_start, q_end, _ = parse_q_label(q_label)
     print(f'\n=== Q-End-Routine: {q_label} ({q_start} bis {q_end}) ===')
+
+    if 'Quartals-Bewertungen' not in wb.sheetnames:
+        raise RuntimeError('Sheet "Quartals-Bewertungen" fehlt im Excel — bitte Phase A laufen lassen')
+    ws_qb = wb['Quartals-Bewertungen']
 
     results = []
     for pm_cfg in PMS:
-        pm = compute_pm(ws_daten, pm_cfg)
-        if not pm:
-            print(f'  {pm_cfg["name"]}: keine Stammdaten → übersprungen')
-            continue
-        # Vorquartal-Stufe = pm['tats_stufe'] aus Excel (= alte Vorquartal-Bewertung)
-        # Für die ±1-Logik wird pm['start_stufe'] verwendet — bleibt aus Excel
-        result = compute_quartal(pm, q_start, q_end, today=q_end)
+        result = compute_quartal(pm_cfg, q_start, q_end, today=q_end)
         if not result:
             print(f'  {pm_cfg["name"]}: compute_quartal lieferte None')
             continue
-        results.append((pm, result))
+        results.append((pm_cfg, result))
         print(f'  {pm_cfg["name"]}: €/h={result["eur60"]:.2f}, rechn={result["rechn_stufe"]}, tats={result["tats_stufe"]}'
               + (' (Probezeit)' if result.get('probezeit_aktiv') else ''))
 
-    # Audit-Sheet befüllen
-    if audit_name not in wb.sheetnames:
-        print(f'  Audit-Sheet {audit_name!r} existiert noch nicht — bitte vorher anlegen (Phase 2)')
-        return results
-
-    ws_audit = wb[audit_name]
-    print(f'\nSchreibe Werte in Audit-Sheet "{audit_name}":')
-    # Datenzeilen 8-11 (4 PMs)
-    for ri, (pm, result) in enumerate(results, start=8):
-        ws_audit.cell(row=ri, column=1, value=pm['name'])
-        ws_audit.cell(row=ri, column=2, value=pm['bundle_standorte'])
-        ws_audit.cell(row=ri, column=3, value=pm['vstd_bundle'])
-        ws_audit.cell(row=ri, column=4, value=round(result['vstd_ber'], 1))
-        ws_audit.cell(row=ri, column=5, value=round(result['abw_ber'], 1))
-        ws_audit.cell(row=ri, column=6, value=round(result['feiertage_ber'], 1))
-        ws_audit.cell(row=ri, column=7, value=round(result['ist'], 0))
-        ws_audit.cell(row=ri, column=8, value=round(result['verfueg'], 1))
-        ws_audit.cell(row=ri, column=9, value=round(result['eur60'], 2))
-        ws_audit.cell(row=ri, column=10, value=round(pm.get('zufr', 0), 2))
-        ws_audit.cell(row=ri, column=11, value=result['rechn_stufe'])
-        ws_audit.cell(row=ri, column=12, value=result['tats_stufe'])
-        ws_audit.cell(row=ri, column=13, value='Ja' if result.get('probezeit_aktiv') else 'Nein')
-        ws_audit.cell(row=ri, column=14, value=result['anzahl_th_aktiv'])
-        ws_audit.cell(row=ri, column=15, value=result['termine_count'])
-        from datetime import datetime as _dt
-        ws_audit.cell(row=ri, column=16,
-                      value=f'Berechnet {_dt.now().strftime("%Y-%m-%d %H:%M")} via compute_quartal()')
-        print(f'  Row {ri}: {pm["name"]} eingetragen')
-
-    # Stufe Vorquartal in Daten-Tab updaten (Spalte 5 — für ±1-Deckel im nächsten Q)
-    print(f'\nUpdate "Stufe Vorquartal" in Daten-Tab (Spalte 5):')
-    for pm, result in results:
-        # Finde Row im Daten-Tab via Name
-        for r in range(5, 20):
-            if ws_daten.cell(row=r, column=2).value == pm['name']:
-                old = ws_daten.cell(row=r, column=5).value
-                ws_daten.cell(row=r, column=5, value=result['tats_stufe'])
-                print(f'  {pm["name"]}: Stufe Vorquartal {old} → {result["tats_stufe"]}')
-                break
+    # Werte in Quartals-Bewertungen schreiben
+    from datetime import datetime as _dt
+    now_str = _dt.now().strftime('%Y-%m-%d %H:%M')
+    print(f'\nSchreibe Werte in Quartals-Bewertungen (Long-Format):')
+    for pm_cfg, result in results:
+        row = _find_qb_row(ws_qb, q_label, pm_cfg['name'])
+        if row is None:
+            # Neue Zeile anhängen
+            row = 8
+            while ws_qb.cell(row=row, column=1).value:
+                row += 1
+            ws_qb.cell(row=row, column=1, value=q_label)
+            ws_qb.cell(row=row, column=2, value=pm_cfg['name'])
+        # Zufr-Score aus Q-bisher Werten (Input-Spalten 3-5)
+        ruecken = ws_qb.cell(row=row, column=3).value
+        komm    = ws_qb.cell(row=row, column=4).value
+        enps    = ws_qb.cell(row=row, column=5).value
+        zufr = None
+        if all(isinstance(v, (int, float)) for v in (ruecken, komm, enps)):
+            zufr = ruecken*0.2 + komm*0.2 + enps*0.6
+            ws_qb.cell(row=row, column=7, value=round(zufr, 2))
+        # Code-Output-Spalten 8-19
+        ws_qb.cell(row=row, column=8, value=round(result['vstd_ber'], 1))
+        ws_qb.cell(row=row, column=9, value=round(result['abw_ber'], 1))
+        ws_qb.cell(row=row, column=10, value=round(result['feiertage_ber'], 1))
+        ws_qb.cell(row=row, column=11, value=round(result['ist']))
+        ws_qb.cell(row=row, column=12, value=round(result['verfueg'], 1))
+        ws_qb.cell(row=row, column=13, value=round(result['eur60'], 2))
+        ws_qb.cell(row=row, column=14, value=result['rechn_stufe'])
+        ws_qb.cell(row=row, column=15, value=result['tats_stufe'])
+        ws_qb.cell(row=row, column=16, value='Ja' if result.get('probezeit_aktiv') else 'Nein')
+        # Diff zu MediFox
+        mf = ws_qb.cell(row=row, column=6).value
+        if isinstance(mf, (int, float)):
+            diff = result['ist'] - mf
+            ws_qb.cell(row=row, column=17, value=round(diff))
+            diff_pct = (diff / mf) * 100 if mf else 0
+            status = '✓ OK' if abs(diff_pct) < 2 else f'⚠️ Diff {diff_pct:+.1f} %'
+        elif zufr is None:
+            status = '⏳ Zufriedenheit fehlt'
+        else:
+            status = '⏳ MediFox-IST fehlt'
+        ws_qb.cell(row=row, column=18, value=status)
+        ws_qb.cell(row=row, column=19, value=now_str)
+        print(f'  Row {row}: {pm_cfg["name"]} → eur60={result["eur60"]:.2f}, tats={result["tats_stufe"]}, status="{status}"')
 
     return results
 
@@ -2583,7 +2661,6 @@ def _main():
 
     print('Lade Excel...')
     wb = openpyxl.load_workbook(EXCEL, data_only=False)
-    ws_d = wb['Daten']
     load_stufen_aus_excel(wb)
     pms_changed = load_pms_from_excel(wb)
     if pms_changed:
@@ -2595,7 +2672,7 @@ def _main():
 
     # Q-End-Routine (optional)
     if _args.q_end:
-        run_q_end_routine(wb, ws_d, _args.q_end)
+        run_q_end_routine(wb, _args.q_end)
         if _args.save_excel:
             wb.save(EXCEL)
             print(f'\n✅ Excel gespeichert: {EXCEL}')
@@ -2606,7 +2683,7 @@ def _main():
 
     for pm_cfg in PMS:
         print(f'  {pm_cfg["name"]}...')
-        pm_data = compute_pm(ws_d, pm_cfg)
+        pm_data = compute_pm(wb, pm_cfg, q_label='Q1 2026')
         if not pm_data:
             print(f'    übersprungen (keine Daten)')
             continue

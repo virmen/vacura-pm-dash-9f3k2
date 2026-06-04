@@ -33,10 +33,10 @@ jobs:
           python3 -m pytest tests/test_termin_umsatz.py tests/test_th_stunden_am_werktag.py -v
 
       - name: Run Q1-Sanity-Integration-Tests
-        # Liest Excel im Repo (generator/PM_Gehaltsmodell_v18.xlsx)
+        # Liest Excel im Repo (generator/PM_Gehaltsmodell.xlsx)
         # KEIN NocoDB-Zugriff — testet nur compute_pm gegen historische Werte
         env:
-          EXCEL_PATH: ${{ github.workspace }}/generator/PM_Gehaltsmodell_v18.xlsx
+          EXCEL_PATH: ${{ github.workspace }}/generator/PM_Gehaltsmodell.xlsx
         run: |
           cd generator
           python3 -m pytest tests/test_q1_sanity.py -v
