@@ -34,6 +34,17 @@ Deploy-Repo (separat): virmen/vacura-pm-dash-9f3k2
 └── *.html                              ← deployed Dashboards
 ```
 
+## Neuen PM anlegen
+
+Ein einziger Befehl — interaktiver Wizard, schreibt Excel automatisch:
+
+```bash
+cd ~/Code/Claude/Github/pm-dashboards/v2
+python3 add_pm.py
+```
+
+Du gibst nur ein: Name, Wochenstunden, Bundle, Mindestgehalt. Token wird automatisch erzeugt, Eintrag in `PM-Stammdaten` + `Daten`-Tab parallel. Bei nächstem `generate.py` ist der neue PM dabei.
+
 ## Schneller Start
 
 ```bash
