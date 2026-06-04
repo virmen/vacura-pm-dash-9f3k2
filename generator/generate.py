@@ -21,6 +21,9 @@ OUT_DIR = os.environ.get('OUT_DIR') or os.path.expanduser('~/Code/Claude/Github/
 PKV_FAKTOR = 1.7
 
 # Stufen
+# STUFEN-Default: gilt für Tests + als Fallback.
+# Excel-Tab `Stufentabelle` ist die Quelle der Wahrheit, wird beim Excel-Load eingelesen
+# und überschreibt diese Defaults. Bei jährlichem Schwellen-Review nur Excel ändern.
 STUFEN = [
     {'n': 1, 'name': 'Basis',         'zufr': 5.0, 'zulage': 0.00, 'eur60': 61.17},
     {'n': 2, 'name': 'Gut',           'zufr': 6.0, 'zulage': 0.11, 'eur60': 66.54},
@@ -29,6 +32,38 @@ STUFEN = [
     {'n': 5, 'name': 'Exzellent',     'zufr': 8.5, 'zulage': 0.44, 'eur60': 84.11},
     {'n': 6, 'name': 'Herausragend',  'zufr': 8.5, 'zulage': 0.55, 'eur60': 89.48},
 ]
+
+# Maximaler Stufen-Sprung pro Quartal (Übersprungs-Limit gegenüber Vorquartal-Stufe).
+# Gilt für tats_stufe; rechn_stufe (rein aus eur60+zufr) bleibt davon unberührt
+# und wird im Live-Block zur Motivation gezeigt.
+MAX_STUFEN_SPRUNG = 1
+
+def load_stufen_aus_excel(workbook):
+    """Liest Stufen-Schwellen aus Excel-Tab 'Stufentabelle' und überschreibt das globale STUFEN.
+
+    Excel-Schema: Spalte 1=Stufe-Nr, 4=Zufr-Schwelle, 5=Zulage % (als Dezimalzahl), 6=€/60min-Schwelle.
+    Stufen-Namen bleiben aus den Defaults (sind reine UI-Labels, nicht im Excel).
+    """
+    global STUFEN
+    try:
+        ws = workbook['Stufentabelle']
+    except KeyError:
+        return  # Tab nicht da → Defaults behalten
+    name_map = {s['n']: s['name'] for s in STUFEN}
+    neu = []
+    for r in range(2, 12):
+        n = ws.cell(row=r, column=1).value
+        if not isinstance(n, (int, float)) or n < 1 or n > 6:
+            continue
+        zufr = ws.cell(row=r, column=4).value
+        zulage = ws.cell(row=r, column=5).value
+        eur60 = ws.cell(row=r, column=6).value
+        if zufr is None or zulage is None or eur60 is None:
+            continue
+        neu.append({'n': int(n), 'name': name_map.get(int(n), f'Stufe {int(n)}'),
+                    'zufr': float(zufr), 'zulage': float(zulage), 'eur60': float(eur60)})
+    if len(neu) == 6:
+        STUFEN = sorted(neu, key=lambda s: s['n'])
 
 # KPI-Level für Wege-Block
 KPI_LEVELS = {
@@ -190,12 +225,32 @@ def compute_pm(ws_daten, pm):
     else:
         tats = rechn
     
-    # TH
+    # TH-Äqui für Bundle-Zulage (Stichtagswert — keine 29-Tage-Sperre, siehe Memory)
     th_bundle = round(vstd_bundle / 13 / 30)
     th_pm = round(th_bundle * wochenstd / pm_std_bundle)
-    
+
+    # Probezeit-Check (PM-Vertrag § 8 Abs. 3): erste 6 Monate Stufe 1, Bundle-Zulage 0 €
+    probezeit_aktiv = False
+    if startdatum:
+        try:
+            from datetime import date as _date, datetime as _dt
+            sd = startdatum.date() if hasattr(startdatum, 'date') else (
+                _date.fromisoformat(startdatum[:10]) if isinstance(startdatum, str) else startdatum)
+            # Q1 2026 endete am 31.3. — Bewertung gilt für Q-Start = 1.4.
+            q_eval_end = _date(2026, 3, 31)  # Vorquartal-Ende
+            jahre = q_eval_end.year - sd.year
+            monate = q_eval_end.month - sd.month
+            monatsdiff = jahre * 12 + monate
+            if monatsdiff < 6:
+                probezeit_aktiv = True
+        except Exception: pass
+
     # Gehalt
-    bundle_zulage = th_kumuliert(th_pm)
+    if probezeit_aktiv:
+        tats = 1
+        bundle_zulage = 0
+    else:
+        bundle_zulage = th_kumuliert(th_pm)
     basis = 40000 + bundle_zulage
     stufe_zulage_pct = STUFEN[tats - 1]['zulage']
     gehalt_formel = round(basis * (1 + stufe_zulage_pct) * (wochenstd / 40))
@@ -233,6 +288,7 @@ def compute_pm(ws_daten, pm):
         'mindest_anteilig': min_gehalt_anteilig,
         'bundle_standorte': pm['bundle_standorte'],
         'bundle_pms': pm['bundle_pms'],
+        'probezeit_aktiv': probezeit_aktiv,
     }
 
 def delta_naechste_stufe(pm_data):
@@ -1167,19 +1223,22 @@ def _fetch_all(table_id, where=None):
             params = [f'limit=200', f'offset={offset}']
             if where: params.append(f'where={where}')
             url = f'https://db.vacura-praxis.de/api/v2/tables/{table_id}/records?' + '&'.join(params)
-            # Retry 3x
+            # Retry 5x mit Exponential Backoff (1s, 2s, 4s, 8s, 16s)
             data = None
-            for attempt in range(3):
+            last_err = None
+            for attempt in range(5):
                 try:
                     r = subprocess.run(['curl','-sS','--max-time','60','-K',cfg.name,url], capture_output=True, text=True, timeout=90)
                     if r.returncode != 0 or not r.stdout.strip():
-                        _time.sleep(1); continue
+                        last_err = f'curl rc={r.returncode}, stderr={r.stderr[:200]}'
+                        _time.sleep(2 ** attempt); continue
                     data = json.loads(r.stdout)
                     break
-                except Exception:
-                    _time.sleep(1)
+                except Exception as e:
+                    last_err = str(e)[:200]
+                    _time.sleep(2 ** attempt)
             if not data:
-                raise RuntimeError(f'NocoDB fetch failed after retries for {table_id}')
+                raise RuntimeError(f'NocoDB fetch failed after 5 retries for {table_id}: {last_err}')
             batch = data.get('list', [])
             rows.extend(batch)
             if len(batch) < 200:
@@ -1190,8 +1249,9 @@ def _fetch_all(table_id, where=None):
         _os.unlink(cfg.name)
 
 def termin_umsatz(t):
-    """€-Umsatz eines Termins basierend auf Dauer (aus beginn/ende), Verordnungstyp, Hausbesuch.
-    Tarif-Logik aus reference_verguetungswerte.md: GKV-Basis nach Dauer-Stufe, ×PKV_FAKTOR für PKV/SZ, +27,56 € Hausbesuch (× Faktor)."""
+    """€-Umsatz eines Termins.
+    Tarif-Logik aus reference_pm_ist_berechnung.md: GKV-Basis nach Dauer-Stufe, ×PKV_FAKTOR für PKV/SZ,
+    Hausbesuch +27,56 € NACH dem Faktor (Pauschale wird NICHT × Faktor — Entscheidung 2026-06-03)."""
     from datetime import datetime as _dt
     import math
     try:
@@ -1206,38 +1266,186 @@ def termin_umsatz(t):
     elif dauer <= 45: basis = 75.91
     elif dauer <= 60: basis = 94.89
     else:             basis = 94.89 + math.ceil((dauer - 60) / 15) * 18.98
-    if t.get('is_hausbesuch'):
-        basis += 27.56
+    # Reihenfolge: erst PKV-Faktor, dann HB-Pauschale dazu
     if t.get('verordnungstyp') in (2, 3):
         basis *= PKV_FAKTOR
+    if t.get('is_hausbesuch'):
+        basis += 27.56
     return basis
 
-def compute_live_quartalsstand(pm, today=None):
-    """Live-€/h für laufendes Quartal (Q-bisher) eines PM-Bundles.
+BERLIN_FEIERTAGE = {
+    # 2026
+    '2026-01-01',  # Neujahr (Do)
+    '2026-03-08',  # Internationaler Frauentag (So 2026 — nur in Berlin gesetzlich)
+    '2026-04-03',  # Karfreitag (Fr)
+    '2026-04-06',  # Ostermontag (Mo)
+    '2026-05-01',  # Tag der Arbeit (Fr)
+    '2026-05-14',  # Christi Himmelfahrt (Do)
+    '2026-05-25',  # Pfingstmontag (Mo)
+    '2026-10-03',  # Tag der Deutschen Einheit (Sa)
+    '2026-12-25',  # 1. Weihnachtstag (Fr)
+    '2026-12-26',  # 2. Weihnachtstag (Sa)
+    # 2027
+    '2027-01-01', '2027-03-08', '2027-03-26', '2027-03-29',
+    '2027-05-01', '2027-05-06', '2027-05-17',
+    '2027-10-03', '2027-12-25', '2027-12-26',
+}
 
-    Methode (parallel zu Q1-Bewertung):
-    - IST_live: Sum Termin-Umsatz (Status erbracht/erbracht_und_unterschrieben, art=normal,
-      deleted_at NULL, !is_blocker, !is_passive_leistung) im Q-bisher
-    - VStd_q_bisher: pm['vstd_ber'] / 13 × Wochen-Q-bisher (Bundle-Größe Q1 als Stable-Annahme)
-    - Abw_q_bisher: Stunden-Summe von Abwesenheiten (außer krank/krankheit_kind/angefragt — v17-Filter)
-    - eur60_live = IST_live / (VStd_q_bisher − Abw_q_bisher)
+def _th_earliest_beschaeftigung(m):
+    """Frühestes Beschäftigungs-Von-Datum (ISO) für 29-Tage-Sperre."""
+    bz = m.get('beschaeftigungszeiten') or []
+    starts = [e['Von'] for e in bz if e.get('Von')]
+    return min(starts) if starts else None
 
-    Wenn Quartalsanfang (< 1 Woche) oder verfueg_live ≤ 0: return None.
+def _th_stunden_am_werktag(m, datum):
+    """Echte Arbeitsstunden des TH am gegebenen Werktag aus arbeitszeit_gruppen[].Arbeitszeiten[].
+    Wochentag-Codes als Bitmask: Mo=1, Di=2, Mi=4, Do=8, Fr=16.
+    Gruppen-Gültigkeit über GueltigAb/GueltigBis. Mehrere Slots pro Tag werden summiert."""
+    if datum.weekday() >= 5: return 0.0
+    bitmask = 1 << datum.weekday()
+    iso = datum.isoformat()
+    total = 0.0
+    for g in (m.get('arbeitszeit_gruppen') or []):
+        # Gruppen-Gültigkeit
+        g_von = g.get('GueltigAb'); g_bis = g.get('GueltigBis')
+        if g_von and g_von > iso: continue
+        if g_bis and g_bis < iso: continue
+        for s in (g.get('Arbeitszeiten') or []):
+            if s.get('Wochentag') != bitmask: continue
+            if s.get('GueltigAb') and s['GueltigAb'] > iso: continue
+            try:
+                sh, sm, _ = s['Start'].split(':')
+                eh, em, _ = s['Ende'].split(':')
+                total += (int(eh) + int(em)/60) - (int(sh) + int(sm)/60)
+            except Exception: continue
+    return total
+
+def compute_quartal(pm, q_start, q_end, today=None):
+    """Berechnet IST/Vstd/Abw/Feiertage/verfueg/eur60 für ein beliebiges Quartalsfenster.
+
+    Eine gemeinsame Funktion für:
+    - Live (q_end = aktuelles Q-Ende, today < q_end): `effective_end = today`, rechnet Q-bisher.
+    - Q-End (q_end = letzter Q-Tag, today ≥ q_end): `effective_end = q_end`, rechnet komplettes Q.
+    - Probezeit-Override: wenn `pm['startdatum']` weniger als 6 Monate vor q_end → Stufe=1.
+
+    Konsistenz-Anker: `eff_days` pro TH = max(q_start, TH-Start+29) … min(effective_end, TH-Bis).
+    Alle Größen (Vstd, Abw, Feiertage, IST) werden über dasselbe eff_days-Fenster gerechnet —
+    damit ist die 29-Tage-Sperre strukturell eingebaut (Zähler+Nenner schrumpfen proportional).
+
+    Return-Dict: q_start, q_end, effective_end, wochen, bundle_th_count, bundle_h_pro_woche,
+    vstd_ber, abw_ber, feiertage_ber, verfueg, ist, eur60, tats_stufe, termine_count,
+    termine_skip_29d, probezeit_aktiv.
+
+    Return None wenn vstd_ber ≤ 0 oder verfueg ≤ 0 (Quartal noch nicht ausreichend bewertbar).
     """
-    from datetime import date as _date, timedelta as _td, datetime as _dt
+    from datetime import date as _date, timedelta as _td
     today = today or _date.today()
-    q_month = ((today.month - 1) // 3) * 3 + 1
-    q_start = _date(today.year, q_month, 1)
-    q_days = (today - q_start).days + 1
-    wochen_q_bisher = q_days / 7
-    if wochen_q_bisher < 1.0:
+    effective_end = min(q_end, today)
+    if effective_end < q_start:
         return None
+
+    iso_q_start = q_start.isoformat()
+    iso_eff_end = effective_end.isoformat()
+    iso_29ago_end = (effective_end - _td(days=29)).isoformat()
 
     bundle_standorte = [s.strip().lower().replace(' ', '_') for s in pm['bundle_standorte'].split(',')]
 
-    # 1) IST_live aus Termine im Q-bisher
-    ist_live = 0.0
+    # Probezeit-Check (PM-Vertrag § 8 Abs. 3: erste 6 Monate Stufe 1, keine Bundle-Zulage)
+    probezeit_aktiv = False
+    if pm.get('startdatum'):
+        try:
+            from datetime import datetime as _dt
+            sd = pm['startdatum']
+            if hasattr(sd, 'date'): sd = sd.date()
+            elif isinstance(sd, str): sd = _date.fromisoformat(sd[:10])
+            # 6 Monate vor q_end
+            jahre = q_end.year - sd.year
+            monate = q_end.month - sd.month
+            tage_diff_in_monate = jahre * 12 + monate
+            if tage_diff_in_monate < 6:
+                probezeit_aktiv = True
+        except Exception: pass
+
+    # Bundle-TH: Beschäftigung überlappt mit Q-Fenster UND Start ≤ effective_end - 29 Tage
+    ma = _fetch_all('mc934lbrlg7w6e1')
+    def _aktiv_im_q(m):
+        bz = m.get('beschaeftigungszeiten') or []
+        for e in bz:
+            v = e.get('Von'); b = e.get('Bis')
+            if (v is None or v <= iso_eff_end) and (b is None or b >= iso_q_start):
+                return True
+        return False
+    def _seit_29tage_vor_eff_end(m):
+        v = _th_earliest_beschaeftigung(m)
+        return v is not None and v <= iso_29ago_end
+
+    bundle_th = [m for m in ma
+                 if m.get('is_therapeut')
+                 and 'Online' not in f"{m.get('vorname','')} {m.get('nachname','')}"
+                 and any(f in bundle_standorte for f in (m.get('filialen') or []))
+                 and _aktiv_im_q(m)
+                 and _seit_29tage_vor_eff_end(m)]
+    th_ids = {m['id'] for m in bundle_th}
+    th_by_id = {m['id']: m for m in bundle_th}
+    th_start_iso = {m['id']: _th_earliest_beschaeftigung(m) for m in bundle_th}
+
+    # Wochenstunden pro TH: primär auslastung_4w.arbeitszeit_h/4, Fallback StundenProWoche
+    ausl = _fetch_all('m29vw64nhicfco2')
+    latest_per_th = {}
+    for r in ausl:
+        mid = r.get('mitarbeiter_id')
+        if mid not in th_ids: continue
+        d = r.get('datum', '')
+        if mid not in latest_per_th or d > latest_per_th[mid].get('datum', ''):
+            latest_per_th[mid] = r
+
+    # eff_days und Vstd pro TH
+    bundle_h_pro_woche = 0.0
+    vstd_ber = 0.0
+    th_eff_start = {}   # für IST/Abw/Feiertage-Filter
+    th_eff_end = {}
+    for m in bundle_th:
+        snap = latest_per_th.get(m['id'])
+        h_woche = ((snap.get('arbeitszeit_h', 0) or 0) / 4) if snap else 0
+        if h_woche <= 0:
+            g = (m.get('arbeitszeit_gruppen') or [{}])[0]
+            h_woche = float(g.get('StundenProWoche', 0) or 0)
+        bundle_h_pro_woche += h_woche
+
+        eff_start = q_start
+        start_iso = th_start_iso.get(m['id'])
+        if start_iso:
+            try:
+                sperre_ende = _date.fromisoformat(start_iso) + _td(days=29)
+                eff_start = max(q_start, sperre_ende)
+            except Exception: pass
+
+        eff_end = effective_end
+        for e in (m.get('beschaeftigungszeiten') or []):
+            if e.get('Bis'):
+                try:
+                    bis_d = _date.fromisoformat(e['Bis'])
+                    if bis_d < eff_end:
+                        eff_end = bis_d
+                except Exception: pass
+
+        if eff_start > eff_end:
+            th_eff_start[m['id']] = None
+            th_eff_end[m['id']] = None
+            continue
+
+        th_eff_start[m['id']] = eff_start
+        th_eff_end[m['id']] = eff_end
+        eff_days = (eff_end - eff_start).days + 1
+        vstd_ber += h_woche * eff_days / 7
+
+    if vstd_ber <= 0:
+        return None
+
+    # IST aus Termine (Termin im TH-eff_days-Range)
+    ist = 0.0
     termine_count = 0
+    termine_skip_29d = 0
     for st in bundle_standorte:
         termine = _fetch_all('mf2pw17nwfzlkd2', where=f'(filiale,eq,{st})')
         for t in termine:
@@ -1248,94 +1456,142 @@ def compute_live_quartalsstand(pm, today=None):
             try:
                 b = _date.fromisoformat(t['beginn'][:10])
             except Exception: continue
-            if b < q_start or b > today: continue
-            ist_live += termin_umsatz(t)
+            ma_list = t.get('mitarbeiter') or []
+            if not ma_list: continue
+            mid = ma_list[0].get('Id')
+            if mid not in th_ids: continue
+            es = th_eff_start.get(mid); ee = th_eff_end.get(mid)
+            if es is None or ee is None: continue
+            if b < es:
+                termine_skip_29d += 1
+                continue
+            if b > ee: continue
+            ist += termin_umsatz(t)
             termine_count += 1
 
-    # 2) Bundle-VStd live: aus auslastung_4w (letzter Snapshot pro TH) ÷ 4 = Wochenstunden
-    #    × wochen_q_bisher = VStd Q-bisher.
-    #    Berücksichtigt Beschäftigungs-Übergänge automatisch (besser als Q1-Extrapolation).
-    ma = _fetch_all('mc934lbrlg7w6e1')
-    def _aktiv_heute(m):
-        bz = m.get('beschaeftigungszeiten') or []
-        iso = today.isoformat()
-        for e in bz:
-            v = e.get('Von'); b = e.get('Bis')
-            if (v is None or v <= iso) and (b is None or b >= iso):
-                return True
-        return False
-    bundle_th = [m for m in ma
-                 if m.get('is_therapeut')
-                 and 'Online' not in f"{m.get('vorname','')} {m.get('nachname','')}"
-                 and any(f in bundle_standorte for f in (m.get('filialen') or []))
-                 and _aktiv_heute(m)]
-    th_ids = {t['id'] for t in bundle_th}
-    anzahl_th = max(1, len(bundle_th))
-
-    ausl = _fetch_all('m29vw64nhicfco2')
-    latest_per_th = {}
-    for r in ausl:
-        mid = r.get('mitarbeiter_id')
-        if mid not in th_ids: continue
-        d = r.get('datum', '')
-        if mid not in latest_per_th or d > latest_per_th[mid].get('datum', ''):
-            latest_per_th[mid] = r
-    bundle_h_pro_woche_live = sum((r.get('arbeitszeit_h', 0) or 0) / 4 for r in latest_per_th.values())
-    if bundle_h_pro_woche_live <= 0:
-        # Fallback: Q1-Extrapolation
-        bundle_h_pro_woche_live = pm['vstd_ber'] / 13
-    vstd_q_bisher = bundle_h_pro_woche_live * wochen_q_bisher
-
-    # 3) Abw_q_bisher — Methode A (Hybrid): echte Q-bisher-Abw aus NocoDB,
-    # plus Q1-Quote als Diagnose-Wert (nicht für eur60). Live-Wert ist rein
-    # informativ — finale Q-Bewertung läuft am Quartalsende aus Excel.
+    # Abw_ber: individuell pro Wochentag, eff_days-Range pro TH
     EXCLUDED_ARTS = {'krank', 'krankheit_kind', 'angefragt'}
-    h_pro_werktag_per_th = bundle_h_pro_woche_live / anzahl_th / 5
     abw_records = _fetch_all('mwcnx74etcl1frq')
-    abw_h_gemessen = 0.0
+    abw_ber = 0.0
     for a in abw_records:
         if a.get('deleted_at'): continue
         if a.get('art') in EXCLUDED_ARTS: continue
-        if a.get('mitarbeiter_id') not in th_ids: continue
+        mid = a.get('mitarbeiter_id')
+        if mid not in th_ids: continue
+        es = th_eff_start.get(mid); ee = th_eff_end.get(mid)
+        if es is None or ee is None: continue
+        m_th = th_by_id[mid]
         try:
             von = _date.fromisoformat(a['von'][:10])
             bis = _date.fromisoformat(a['bis'][:10])
         except Exception: continue
-        day = max(von, q_start); end_day = min(bis, today)
+        day = max(von, es); end_day = min(bis, ee)
         while day <= end_day:
             if day.weekday() < 5:
-                abw_h_gemessen += h_pro_werktag_per_th
+                abw_ber += _th_stunden_am_werktag(m_th, day)
             day += _td(days=1)
-    q1_abw_quote = pm['abw_ber'] / pm['vstd_ber'] if pm['vstd_ber'] > 0 else 0.10
-    abw_h_stabilisiert = vstd_q_bisher * q1_abw_quote   # nur Diagnose
 
-    verfueg_live = vstd_q_bisher - abw_h_gemessen
-    if verfueg_live <= 0:
+    # Feiertage_ber: pro Werktag-Feiertag, eff_days-Range pro TH
+    feiertage_ber = 0.0
+    day = q_start
+    while day <= effective_end:
+        iso = day.isoformat()
+        if iso in BERLIN_FEIERTAGE and day.weekday() < 5:
+            for m in bundle_th:
+                es = th_eff_start.get(m['id']); ee = th_eff_end.get(m['id'])
+                if es is None or ee is None: continue
+                if day < es or day > ee: continue
+                feiertage_ber += _th_stunden_am_werktag(m, day)
+        day += _td(days=1)
+
+    verfueg = vstd_ber - abw_ber - feiertage_ber
+    if verfueg <= 0:
         return None
-    eur60_live = ist_live / verfueg_live
+    eur60 = ist / verfueg
 
-    # Live-Stufen-Schätzung (gleiche UND-Logik wie Q-Bewertung — Zufriedenheit aus Q1)
-    tats_stufe_live = 1
+    # rechn_stufe = rein aus eur60 + zufr (UND-Logik), OHNE Übersprungs-Limit
+    rechn_stufe = 1
     for s in reversed(STUFEN):
-        if eur60_live >= s['eur60'] and pm['zufr'] >= s['zufr']:
-            tats_stufe_live = s['n']; break
+        if eur60 >= s['eur60'] and pm.get('zufr', 0) >= s['zufr']:
+            rechn_stufe = s['n']; break
 
+    # tats_stufe = mit Übersprungs-Limit gegenüber start_stufe (Vorquartal-Stufe)
+    # + Probezeit-Override (fix Stufe 1)
+    start_stufe = pm.get('start_stufe', rechn_stufe)
+    if probezeit_aktiv:
+        tats_stufe = 1
+    else:
+        tats_stufe = max(start_stufe - MAX_STUFEN_SPRUNG,
+                         min(rechn_stufe, start_stufe + MAX_STUFEN_SPRUNG))
+        tats_stufe = max(1, min(tats_stufe, 6))
+
+    wochen = ((effective_end - q_start).days + 1) / 7
     return {
-        'eur60_live': eur60_live,
-        'ist_live': ist_live,
-        'verfueg_live': verfueg_live,
-        'vstd_q_bisher': vstd_q_bisher,
-        'abw_h_stabilisiert': abw_h_stabilisiert,    # via Q1-Abw-Quote (nur Diagnose)
-        'abw_h_gemessen': abw_h_gemessen,        # echt aus NocoDB (nur Info)
-        'q1_abw_quote': q1_abw_quote,
-        'bundle_h_pro_woche': bundle_h_pro_woche_live,
-        'wochen_q_bisher': wochen_q_bisher,
-        'anzahl_th_aktiv': anzahl_th,
-        'q_start': q_start,
-        'today': today,
-        'tats_stufe_live': tats_stufe_live,
+        'q_start': q_start, 'q_end': q_end, 'effective_end': effective_end,
+        'wochen': wochen,
+        'bundle_th_count': len(bundle_th),
+        'anzahl_th_aktiv': len(bundle_th),
+        'bundle_h_pro_woche': bundle_h_pro_woche,
+        'vstd_ber': vstd_ber,
+        'abw_ber': abw_ber,
+        'feiertage_ber': feiertage_ber,
+        'verfueg': verfueg,
+        'ist': ist,
+        'eur60': eur60,
+        'rechn_stufe': rechn_stufe,   # rechnerisch erreichte Stufe (motivierender Wert)
+        'tats_stufe': tats_stufe,     # mit ±1-Deckel + Probezeit-Override (bewertungsrelevant)
         'termine_count': termine_count,
+        'termine_skip_29d': termine_skip_29d,
+        'probezeit_aktiv': probezeit_aktiv,
     }
+
+
+def compute_live_quartalsstand(pm, today=None):
+    """Wrapper: delegiert an compute_quartal() für das laufende Quartal.
+
+    Behält das alte Return-Schema (eur60_live, abw_h_gemessen, ...) für UI-Kompatibilität.
+    """
+    from datetime import date as _date, timedelta as _td
+    today = today or _date.today()
+    q_month = ((today.month - 1) // 3) * 3 + 1
+    q_start = _date(today.year, q_month, 1)
+    # Q-Ende ermitteln
+    if q_month + 3 > 12:
+        q_end = _date(today.year + 1, 1, 1) - _td(days=1)
+    else:
+        q_end = _date(today.year, q_month + 3, 1) - _td(days=1)
+
+    # Live-Aufruf: start_stufe für ±1-Deckel = tats_stufe des Bewertungs-Quartals (= Q1)
+    pm_live = dict(pm)
+    pm_live['start_stufe'] = pm.get('tats_stufe', pm.get('start_stufe', 1))
+    result = compute_quartal(pm_live, q_start, q_end, today)
+    if not result:
+        return None
+
+    # Map auf altes Schema für Backwards-Kompatibilität
+    q1_abw_quote = pm['abw_ber'] / pm['vstd_ber'] if pm.get('vstd_ber', 0) > 0 else 0.10
+    return {
+        'eur60_live': result['eur60'],
+        'ist_live': result['ist'],
+        'verfueg_live': result['verfueg'],
+        'vstd_q_bisher': result['vstd_ber'],
+        'abw_h_stabilisiert': result['vstd_ber'] * q1_abw_quote,
+        'abw_h_gemessen': result['abw_ber'],
+        'feiertage_h_gemessen': result['feiertage_ber'],
+        'q1_abw_quote': q1_abw_quote,
+        'bundle_h_pro_woche': result['bundle_h_pro_woche'],
+        'wochen_q_bisher': result['wochen'],
+        'anzahl_th_aktiv': result['anzahl_th_aktiv'],
+        'termine_count': result['termine_count'],
+        'termine_skip_29d': result['termine_skip_29d'],
+        'q_start': result['q_start'],
+        'today': result['effective_end'],
+        'tats_stufe_live': result['tats_stufe'],         # mit ±1-Deckel
+        'rechn_stufe_live': result.get('rechn_stufe', result['tats_stufe']),  # ohne Deckel
+        'probezeit_aktiv': result.get('probezeit_aktiv', False),
+    }
+
+
 
 def compute_live_kpis(bundle_standorte, today=None):
     """Berechnet Auslastung, PKV-Quote, Krank-Tage/TH/Jahr für Bundle."""
@@ -1695,18 +1951,24 @@ def render_html(pm):
             </div>'''
 
             # €/h Live mit Stufen-Tendenz
+            # Doppelt: tats_stufe (mit ±1-Deckel) für Bewertungs-Tendenz,
+            # rechn_stufe (rein aus eur60+zufr) als Motivations-Signal
             if live_quartal:
                 _eur_live = live_quartal['eur60_live']
                 _stufe_live = live_quartal['tats_stufe_live']
+                _stufe_rechn = live_quartal.get('rechn_stufe_live', _stufe_live)
+                _hinweis = ''
+                if _stufe_rechn > _stufe_live:
+                    _hinweis = f' <span style="color:var(--muted);font-size:11px;">(rechnerisch Stufe {_stufe_rechn} — durch ±1-Limit auf {_stufe_live} gedeckelt)</span>'
                 # Tendenz-Label vs. Q1-Bewertung
                 if _stufe_live > pm['tats_stufe']:
-                    _tendenz = f'<span style="color:var(--green);font-weight:700;">↑ auf Kurs Richtung Stufe {_stufe_live}</span>'
+                    _tendenz = f'<span style="color:var(--green);font-weight:700;">↑ auf Kurs Richtung Stufe {_stufe_live}</span>{_hinweis}'
                     _chip_class = 'high'; _chip_pct = 88
                 elif _stufe_live < pm['tats_stufe']:
-                    _tendenz = f'<span style="color:var(--orange);font-weight:700;">↓ aktuell unter Q1-Niveau (Tendenz Stufe {_stufe_live})</span>'
+                    _tendenz = f'<span style="color:var(--orange);font-weight:700;">↓ aktuell unter Q1-Niveau (Tendenz Stufe {_stufe_live})</span>{_hinweis}'
                     _chip_class = 'mid'; _chip_pct = 50
                 else:
-                    _tendenz = f'<span style="color:var(--teal);font-weight:700;">→ Stufe {_stufe_live} bestätigt</span>'
+                    _tendenz = f'<span style="color:var(--teal);font-weight:700;">→ Stufe {_stufe_live} bestätigt</span>{_hinweis}'
                     _chip_class = 'high'; _chip_pct = 75
                 rows_html += f'''
             <div class="live-kpi-row">
@@ -2101,6 +2363,9 @@ def render_html(pm):
 print('Lade Excel...')
 wb = openpyxl.load_workbook(EXCEL, data_only=False)
 ws_d = wb['Daten']
+load_stufen_aus_excel(wb)
+print(f'  Stufen-Schwellen aus Excel: '
+      + ', '.join(f'{s["n"]}={s["eur60"]:.2f}€/h@zufr{s["zufr"]:.1f}' for s in STUFEN))
 
 os.makedirs(OUT_DIR, exist_ok=True)
 
