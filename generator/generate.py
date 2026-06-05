@@ -1461,6 +1461,94 @@ def _tarif_for(schluessel, datum_iso10):
         raise KeyError(f'Tarif-Schluessel "{schluessel}" weder in NocoDB noch im Fallback')
     return float(max(valid, key=lambda r: r.get('gueltig_ab') or '')['wert'])
 
+# Default-Termin-Mix für Skalierungsfaktor bei Tarif-Wechsel (Vacura-typisch, grob kalibriert
+# Stand 2026-06; bei größeren Mix-Verschiebungen empirisch nachsampeln). Summe ≈ 1.
+DEFAULT_TERMIN_MIX = {
+    'basis_bis_20': 0.01,   # TA selten
+    'basis_bis_30': 0.50,   # Standard-30-min
+    'basis_bis_45': 0.39,   # 45-min Hauptanteil
+    'basis_bis_60': 0.10,
+}
+DEFAULT_HB_ANTEIL = 0.08    # Anteil HB-Termine (Pauschale wird additiv mit-skaliert)
+
+def _check_tarif_aenderungen(today_d, lookback_days=7, mix=None, hb_anteil=None):
+    """Prüft, ob neue Vergütungssätze in den letzten X Tagen aktiv geworden sind.
+
+    Vergleicht jeden Schlüssel mit dem unmittelbaren Vorgänger (höchstes
+    `gueltig_ab` vor dem neuen) und berechnet einen gewichteten Skalierungsfaktor
+    aus DEFAULT_TERMIN_MIX + DEFAULT_HB_ANTEIL. Liefert empfohlene neue
+    Stufentabellen-Schwellen (aktuelle STUFEN × Faktor) — die Übernahme bleibt
+    Geschäftsführungs-Entscheidung (siehe tarif-watch.yml Issue-Body).
+
+    Returns dict mit 'changes', 'scale_factor', 'empfohlen_schwellen' — oder None
+    falls keine Änderung im Fenster."""
+    from datetime import timedelta as _td, date as _date
+    if isinstance(today_d, str):
+        today_d = _date.fromisoformat(today_d[:10])
+    today_iso = today_d.isoformat()
+    cutoff = (today_d - _td(days=lookback_days)).isoformat()
+
+    tarife = _load_tarife()
+    new_rows = [r for r in tarife
+                if cutoff <= (r.get('gueltig_ab') or '')[:10] <= today_iso]
+    if not new_rows:
+        return None
+
+    changes = []
+    for new in new_rows:
+        s = new.get('schluessel')
+        if not s:
+            continue
+        old_rows = [r for r in tarife
+                    if r.get('schluessel') == s
+                    and (r.get('gueltig_ab') or '')[:10] < (new.get('gueltig_ab') or '')[:10]]
+        if not old_rows:
+            continue
+        alt = max(old_rows, key=lambda r: r.get('gueltig_ab') or '')
+        alt_w = float(alt['wert']); neu_w = float(new['wert'])
+        changes.append({
+            'schluessel': s,
+            'alt_wert': alt_w,
+            'neu_wert': neu_w,
+            'gueltig_ab': new['gueltig_ab'][:10],
+            'delta_pct': round((neu_w / alt_w - 1) * 100, 2) if alt_w else 0,
+        })
+
+    if not changes:
+        return None
+
+    mix = mix or DEFAULT_TERMIN_MIX
+    hb_anteil = DEFAULT_HB_ANTEIL if hb_anteil is None else hb_anteil
+    chg_by_key = {c['schluessel']: c for c in changes}
+
+    def _val(schl, side):
+        if schl in chg_by_key:
+            return chg_by_key[schl][f'{side}_wert']
+        for r in _TARIFE_FALLBACK:
+            if r['schluessel'] == schl:
+                return float(r['wert'])
+        return 0.0
+
+    sum_alt = sum(w * _val(k, 'alt') for k, w in mix.items())
+    sum_neu = sum(w * _val(k, 'neu') for k, w in mix.items())
+    sum_alt += hb_anteil * _val('hausbesuch_pauschale', 'alt')
+    sum_neu += hb_anteil * _val('hausbesuch_pauschale', 'neu')
+    scale = (sum_neu / sum_alt) if sum_alt else 1.0
+
+    empfohlen = [{
+        'n': s['n'], 'name': s['name'],
+        'alt_eur60': round(s['eur60'], 2),
+        'neu_eur60': round(s['eur60'] * scale, 2),
+    } for s in STUFEN]
+
+    return {
+        'changes': changes,
+        'scale_factor': round(scale, 4),
+        'empfohlen_schwellen': empfohlen,
+        'mix_used': mix,
+        'hb_anteil': hb_anteil,
+    }
+
 def termin_umsatz(t):
     """€-Umsatz eines Termins.
     Tarife dynamisch aus NocoDB `verguetungssaetze` (Fallback hardcoded Stand 2026-06).
@@ -2708,7 +2796,22 @@ def _main():
                      help='Q-End-Routine ausführen. Ohne Argument: vorheriges abgeschlossenes Q (für Cron-Auto-Trigger).')
     _ap.add_argument('--save-excel', action='store_true',
                      help='Excel mit Q-End-Werten überschreiben (sonst nur Dry-Run).')
+    _ap.add_argument('--check-tarife', action='store_true',
+                     help='Nur Tarif-Änderungen prüfen (letzte 7 Tage NocoDB) → JSON auf STDOUT, dann beenden.')
     _args, _ = _ap.parse_known_args()
+
+    if _args.check_tarife:
+        import json
+        from datetime import date as _date
+        # Stufen brauchen wir für die Schwellen-Empfehlung
+        wb_tmp = openpyxl.load_workbook(EXCEL, data_only=False)
+        load_stufen_aus_excel(wb_tmp)
+        diff = _check_tarif_aenderungen(_date.today())
+        if diff is None:
+            print(json.dumps({'status': 'no_change'}, ensure_ascii=False))
+        else:
+            print(json.dumps({'status': 'change_detected', **diff}, indent=2, ensure_ascii=False))
+        return
     if _args.q_end == 'AUTO':
         _args.q_end = previous_q_label()
         print(f'Q-End-Routine Auto-Modus: letztes abgeschlossenes Quartal = {_args.q_end}')
