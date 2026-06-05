@@ -1441,9 +1441,10 @@ def _load_tarife():
         if not rows:
             raise RuntimeError('verguetungssaetze: leere Rückgabe')
         _TARIFE_CACHE = rows
-        print(f'  Tarife aus NocoDB: {len(rows)} Vergütungssätze (Dauer-Basis/Aufschlag/Zuschlag)')
+        # Diagnostik zu stderr, damit --check-tarife JSON-only auf stdout bleibt
+        print(f'  Tarife aus NocoDB: {len(rows)} Vergütungssätze (Dauer-Basis/Aufschlag/Zuschlag)', file=sys.stderr)
     except Exception as e:
-        print(f'  (Tarife-Fetch fehlgeschlagen: {str(e)[:120]} — Fallback auf hardcoded Stand 2026-06)')
+        print(f'  (Tarife-Fetch fehlgeschlagen: {str(e)[:120]} — Fallback auf hardcoded Stand 2026-06)', file=sys.stderr)
         _TARIFE_CACHE = _TARIFE_FALLBACK
     return _TARIFE_CACHE
 

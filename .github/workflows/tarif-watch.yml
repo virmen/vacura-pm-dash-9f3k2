@@ -35,8 +35,13 @@ jobs:
           NOCODB_TOKEN: ${{ secrets.NOCODB_TOKEN }}
           EXCEL_PATH: ${{ github.workspace }}/generator/PM_Gehaltsmodell.xlsx
         run: |
-          python3 generator/generate.py --check-tarife > /tmp/tarif_check.json
-          echo "--- Output ---"
+          # Generator gibt eine Info-Zeile auf stdout aus, danach JSON.
+          # Wir extrahieren ab erster '{' Zeile, damit der Parser nur valid JSON sieht.
+          python3 generator/generate.py --check-tarife > /tmp/tarif_raw.txt
+          echo "--- Raw output ---"
+          cat /tmp/tarif_raw.txt
+          sed -n '/^[{[]/,$p' /tmp/tarif_raw.txt > /tmp/tarif_check.json
+          echo "--- JSON only ---"
           cat /tmp/tarif_check.json
           STATUS=$(python3 -c "import json; print(json.load(open('/tmp/tarif_check.json'))['status'])")
           echo "status=$STATUS" >> "$GITHUB_OUTPUT"
