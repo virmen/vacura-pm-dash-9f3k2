@@ -1411,10 +1411,61 @@ def _fetch_all(table_id, where=None):
     finally:
         _os.unlink(cfg.name)
 
+# === Vergütungssätze (NocoDB `verguetungssaetze`, id mi2h0wengv4xbjh) ===
+# Nur Kategorien Dauer-Basis / Aufschlag / Zuschlag — Versicherungsfaktoren bleiben
+# hardcoded (PKV_FAKTOR oben). Datum-aware: pro Termin wird der zum `beginn` gültige
+# Tarif gewählt (gueltig_ab ≤ Datum, gueltig_bis NULL oder ≥ Datum, bei mehreren das
+# jüngste gueltig_ab).
+_VERG_TABLE_ID = 'mi2h0wengv4xbjh'
+
+# Fallback Stand 2026-06 — wird nur genutzt wenn NocoDB nicht erreichbar ist oder
+# einzelne Schlüssel fehlen. Tests pinnen den Cache via conftest.py auf diese Liste,
+# damit die Test-Suite deterministisch + offline läuft.
+_TARIFE_FALLBACK = [
+    {'schluessel': 'basis_bis_20',                'wert': 8.51,  'gueltig_ab': '2024-01-01', 'gueltig_bis': None},
+    {'schluessel': 'basis_bis_30',                'wert': 56.93, 'gueltig_ab': '2024-01-01', 'gueltig_bis': None},
+    {'schluessel': 'basis_bis_45',                'wert': 75.91, 'gueltig_ab': '2024-01-01', 'gueltig_bis': None},
+    {'schluessel': 'basis_bis_60',                'wert': 94.89, 'gueltig_ab': '2024-01-01', 'gueltig_bis': None},
+    {'schluessel': 'aufschlag_je_15min_ueber_60', 'wert': 18.98, 'gueltig_ab': '2024-01-01', 'gueltig_bis': None},
+    {'schluessel': 'hausbesuch_pauschale',        'wert': 27.56, 'gueltig_ab': '2024-01-01', 'gueltig_bis': None},
+]
+
+_TARIFE_CACHE = None
+
+def _load_tarife():
+    global _TARIFE_CACHE
+    if _TARIFE_CACHE is not None:
+        return _TARIFE_CACHE
+    try:
+        rows = _fetch_all(_VERG_TABLE_ID, where='(kategorie,in,Dauer-Basis,Aufschlag,Zuschlag)')
+        if not rows:
+            raise RuntimeError('verguetungssaetze: leere Rückgabe')
+        _TARIFE_CACHE = rows
+        print(f'  Tarife aus NocoDB: {len(rows)} Vergütungssätze (Dauer-Basis/Aufschlag/Zuschlag)')
+    except Exception as e:
+        print(f'  (Tarife-Fetch fehlgeschlagen: {str(e)[:120]} — Fallback auf hardcoded Stand 2026-06)')
+        _TARIFE_CACHE = _TARIFE_FALLBACK
+    return _TARIFE_CACHE
+
+def _tarif_for(schluessel, datum_iso10):
+    """Gültigen Tarif zum Datum (YYYY-MM-DD) liefern. Bei mehreren passenden das jüngste
+    `gueltig_ab`. Bei fehlendem Schlüssel Fallback auf _TARIFE_FALLBACK."""
+    cands = [r for r in _load_tarife() if r.get('schluessel') == schluessel]
+    valid = [r for r in cands
+             if (r.get('gueltig_ab') or '0000-00-00')[:10] <= datum_iso10
+             and (not r.get('gueltig_bis') or r['gueltig_bis'][:10] >= datum_iso10)]
+    if not valid:
+        for r in _TARIFE_FALLBACK:
+            if r['schluessel'] == schluessel:
+                return float(r['wert'])
+        raise KeyError(f'Tarif-Schluessel "{schluessel}" weder in NocoDB noch im Fallback')
+    return float(max(valid, key=lambda r: r.get('gueltig_ab') or '')['wert'])
+
 def termin_umsatz(t):
     """€-Umsatz eines Termins.
-    Tarif-Logik aus reference_pm_ist_berechnung.md: GKV-Basis nach Dauer-Stufe, ×PKV_FAKTOR für PKV/SZ,
-    Hausbesuch +27,56 € NACH dem Faktor (Pauschale wird NICHT × Faktor — Entscheidung 2026-06-03)."""
+    Tarife dynamisch aus NocoDB `verguetungssaetze` (Fallback hardcoded Stand 2026-06).
+    PKV-Faktor bleibt Modul-Konstante PKV_FAKTOR. Reihenfolge: ×PKV_FAKTOR für PKV/SZ,
+    Hausbesuch-Pauschale danach addiert (Pauschale NICHT × Faktor — Entscheidung 2026-06-03)."""
     from datetime import datetime as _dt
     import math
     try:
@@ -1424,16 +1475,19 @@ def termin_umsatz(t):
     except Exception:
         return 0.0
     if dauer <= 0: return 0.0
-    if dauer <= 20:   basis = 8.51
-    elif dauer <= 30: basis = 56.93
-    elif dauer <= 45: basis = 75.91
-    elif dauer <= 60: basis = 94.89
-    else:             basis = 94.89 + math.ceil((dauer - 60) / 15) * 18.98
-    # Reihenfolge: erst PKV-Faktor, dann HB-Pauschale dazu
+    datum = beginn.date().isoformat()
+    if dauer <= 20:   basis = _tarif_for('basis_bis_20', datum)
+    elif dauer <= 30: basis = _tarif_for('basis_bis_30', datum)
+    elif dauer <= 45: basis = _tarif_for('basis_bis_45', datum)
+    elif dauer <= 60: basis = _tarif_for('basis_bis_60', datum)
+    else:
+        basis_60  = _tarif_for('basis_bis_60', datum)
+        aufschlag = _tarif_for('aufschlag_je_15min_ueber_60', datum)
+        basis = basis_60 + math.ceil((dauer - 60) / 15) * aufschlag
     if t.get('verordnungstyp') in (2, 3):
         basis *= PKV_FAKTOR
     if t.get('is_hausbesuch'):
-        basis += 27.56
+        basis += _tarif_for('hausbesuch_pauschale', datum)
     return basis
 
 BERLIN_FEIERTAGE = {
