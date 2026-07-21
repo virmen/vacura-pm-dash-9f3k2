@@ -2807,6 +2807,10 @@ def run_q_end_routine(wb, q_label):
             f'Wenn das wirklich gewollt ist: Q_LABELS_EINGEFROREN in generate.py editieren.'
         )
     q_start, q_end, _ = parse_q_label(q_label)
+    # Sheet-Zeilen tragen das Anzeige-Format 'Q2 2026' (wie _find_qb_row/compute_pm),
+    # der Routine-Parameter kommt aber als '2026-Q2' — ohne Normalisierung entstehen
+    # Duplikat-Zeilen (passiert beim Q2-2026-Lauf am 08.07.).
+    q_disp = _q_label_from_date(q_start)
     print(f'\n=== Q-End-Routine: {q_label} ({q_start} bis {q_end}) ===')
 
     if 'Quartals-Bewertungen' not in wb.sheetnames:
@@ -2828,13 +2832,13 @@ def run_q_end_routine(wb, q_label):
     now_str = _dt.now().strftime('%Y-%m-%d %H:%M')
     print(f'\nSchreibe Werte in Quartals-Bewertungen (Long-Format):')
     for pm_cfg, result in results:
-        row = _find_qb_row(ws_qb, q_label, pm_cfg['name'])
+        row = _find_qb_row(ws_qb, q_disp, pm_cfg['name'])
         if row is None:
             # Neue Zeile anhängen
             row = 8
             while ws_qb.cell(row=row, column=1).value:
                 row += 1
-            ws_qb.cell(row=row, column=1, value=q_label)
+            ws_qb.cell(row=row, column=1, value=q_disp)
             ws_qb.cell(row=row, column=2, value=pm_cfg['name'])
         # Zufr-Score aus Q-bisher Werten (Input-Spalten 3-5)
         ruecken = ws_qb.cell(row=row, column=3).value
