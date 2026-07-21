@@ -199,7 +199,15 @@ Sockel_PM = 40.000 × Wochenstunden_PM / 40
 
 ### 5.2 Bundle-Zulage (gestaffelt)
 
-Berechnet anhand der **TH-Äquivalente** im Bundle (= Bundle-Wochenstunden Therapeuten ÷ 30):
+Berechnet anhand der **TH-Äquivalente** im Bundle (= Bundle-Wochenstunden Therapeuten ÷ 30).
+
+**Quelle der Bundle-Wochenstunden (seit 2026-07-21):** Brutto-Vertragsstunden zum
+heutigen Stichtag aus NocoDB (`mitarbeiter.arbeitszeit_gruppen`, am Stichtag gültige
+`StundenProWoche`, nur am Stichtag Beschäftigte, Funktion `bundle_brutto_vzae()`).
+Die Zulage läuft damit — wie im Vertrag vorgesehen — mit der aktuellen Bundle-Größe
+mit. Von 2026-06 bis 2026-07 wurde übergangsweise die LZ-bereinigte Quartals-Vstd
+als Proxy genutzt (`vstd_ber / 13 / 30`); das maß das Bundle ~1 VZÄ zu klein und
+bleibt nur noch als Offline-Fallback, wenn NocoDB nicht erreichbar ist.
 
 ```python
 def th_kumuliert(n_th):

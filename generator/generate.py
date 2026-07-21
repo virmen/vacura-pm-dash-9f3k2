@@ -236,6 +236,52 @@ def th_kumuliert(n_th):
         else: cum += 700
     return cum
 
+_BUNDLE_VZAE_CACHE = {}
+
+def bundle_brutto_vzae(bundle_standorte, stichtag):
+    """Bundle-Größe in 30h-VZÄ aus Brutto-Vertragsstunden am Stichtag (v1-Methode).
+
+    Summiert die am Stichtag gültigen Vertrags-Wochenstunden (arbeitszeit_gruppen)
+    aller am Stichtag beschäftigten Therapeut:innen der Bundle-Filialen, ÷ 30.
+    Entspricht der Vertragsdefinition in METHODE.md 5.2 (Brutto-Wochenstunden,
+    kein LZ-Abzug). Return: int VZÄ, oder None wenn NocoDB nicht erreichbar
+    (Caller fällt dann auf den vstd_ber-Proxy zurück).
+    """
+    iso = stichtag.isoformat()
+    standorte = tuple(sorted(s.strip().lower().replace(' ', '_')
+                             for s in bundle_standorte.split(',') if s.strip()))
+    key = (standorte, iso)
+    if key in _BUNDLE_VZAE_CACHE:
+        return _BUNDLE_VZAE_CACHE[key]
+    try:
+        ma = _fetch_all('mc934lbrlg7w6e1')
+    except Exception as e:
+        print(f"    ⚠️  NocoDB für Bundle-VZÄ nicht erreichbar ({str(e)[:120]}) — Fallback vstd_ber-Proxy")
+        return None
+    weekly = 0.0
+    for m in ma:
+        if not m.get('is_therapeut'):
+            continue
+        if 'Online' in f"{m.get('vorname','')} {m.get('nachname','')}":
+            continue
+        if not any(f in standorte for f in (m.get('filialen') or [])):
+            continue
+        bz = m.get('beschaeftigungszeiten') or []
+        aktiv = any((e.get('Von') is None or e['Von'] <= iso) and
+                    (e.get('Bis') is None or e['Bis'] >= iso) for e in bz)
+        if not aktiv:
+            continue
+        gruppen = [g for g in (m.get('arbeitszeit_gruppen') or [])
+                   if (g.get('GueltigAb') or '0000') <= iso
+                   and (not g.get('GueltigBis') or g['GueltigBis'] >= iso)]
+        if not gruppen:
+            continue
+        gruppen.sort(key=lambda g: g.get('GueltigAb') or '', reverse=True)
+        weekly += float(gruppen[0].get('StundenProWoche', 0) or 0)
+    vzae = round(weekly / 30)
+    _BUNDLE_VZAE_CACHE[key] = vzae
+    return vzae
+
 def get_cell_val(ws, r, c):
     v = ws.cell(row=r, column=c).value
     if isinstance(v, str) and v.startswith('='):
@@ -401,8 +447,15 @@ def compute_pm(wb_or_ws, pm, q_label='Q1 2026'):
     else:
         tats = rechn
     
-    # TH-Äqui für Bundle-Zulage (Stichtagswert — keine 29-Tage-Sperre, siehe Memory)
-    th_bundle = round(vstd_bundle / 13 / 30) if vstd_bundle else 0
+    # TH-Äqui für Bundle-Zulage (Stichtagswert — keine 29-Tage-Sperre, siehe Memory).
+    # Brutto-Vertragsstunden HEUTE aus NocoDB (v1-Methode, METHODE.md 5.2): die
+    # Bundle-Zulage läuft vertraglich monatlich mit der aktuellen Bundle-Größe —
+    # nicht mit dem Q-Schnappschuss. Der frühere vstd_ber-Proxy maß zudem wegen
+    # LZ-Abzug ~1 VZÄ zu klein.
+    stichtag = _ddate.today()
+    th_bundle = bundle_brutto_vzae(pm.get('bundle_standorte', ''), stichtag)
+    if th_bundle is None:
+        th_bundle = round(vstd_bundle / 13 / 30) if vstd_bundle else 0
     th_pm = round(th_bundle * wochenstd / pm_std_bundle) if pm_std_bundle else 0
 
     # Probezeit wurde oben schon ermittelt (mit korrektem q_eval_end aus q_label)
@@ -1620,6 +1673,26 @@ def _th_earliest_beschaeftigung(m):
     starts = [e['Von'] for e in bz if e.get('Von')]
     return min(starts) if starts else None
 
+def _anlauf_cutoff(today, months=3):
+    """Stichtag: TH mit Start NACH diesem Datum sind in der Anlaufphase und zählen noch
+    nicht im 4W-Schnitt (= n8n minMonateAktiv=3, include_in_site=false). NocoDB hat das
+    Flag nicht, daher rekonstruieren wir die Schwelle über das Beschäftigungs-Startdatum."""
+    from calendar import monthrange
+    m = today.month - months - 1
+    y = today.year + m // 12
+    m = m % 12 + 1
+    return date(y, m, min(today.day, monthrange(y, m)[1]))
+
+def _ist_anlauf_th(m, cutoff):
+    """True, wenn der TH-Start nach dem Anlauf-Cutoff liegt (noch nicht im Schnitt)."""
+    s = _th_earliest_beschaeftigung(m)
+    if not s:
+        return False
+    try:
+        return date.fromisoformat(s[:10]) > cutoff
+    except Exception:
+        return False
+
 def _th_stunden_am_werktag(m, datum):
     """Echte Arbeitsstunden des TH am gegebenen Werktag aus arbeitszeit_gruppen[].Arbeitszeiten[].
     Wochentag-Codes als Bitmask: Mo=1, Di=2, Mi=4, Do=8, Fr=16.
@@ -1698,6 +1771,9 @@ def compute_quartal(pm, q_start, q_end, today=None):
     th_ids = {m['id'] for m in bundle_th}
     th_by_id = {m['id']: m for m in bundle_th}
     th_start_iso = {m['id']: _th_earliest_beschaeftigung(m) for m in bundle_th}
+    # Anlauf-TH (Start < 3 Monate): 4W-arbeitszeit_h ist nur ein Teilfenster-Wert und seit dem
+    # n8n-Bridging-Update nicht mehr 0 -> für die Wochenstunden den StundenProWoche-Fallback nutzen.
+    bridge_cutoff = _anlauf_cutoff(today)
 
     # Wochenstunden pro TH: primär auslastung_4w.arbeitszeit_h/4, Fallback StundenProWoche
     ausl = _fetch_all('m29vw64nhicfco2')
@@ -1716,7 +1792,7 @@ def compute_quartal(pm, q_start, q_end, today=None):
     th_eff_end = {}
     for m in bundle_th:
         snap = latest_per_th.get(m['id'])
-        h_woche = ((snap.get('arbeitszeit_h', 0) or 0) / 4) if snap else 0
+        h_woche = ((snap.get('arbeitszeit_h', 0) or 0) / 4) if (snap and not _ist_anlauf_th(m, bridge_cutoff)) else 0
         if h_woche <= 0:
             g = (m.get('arbeitszeit_gruppen') or [{}])[0]
             h_woche = float(g.get('StundenProWoche', 0) or 0)
@@ -1921,11 +1997,18 @@ def compute_live_kpis(bundle_standorte, today=None):
     
     # 2) AUSLASTUNG: aus Auslastung 4W Tabelle (rolling 30 Tage)
     auslast_records = _fetch_all(AUSLASTUNG_4W_TABLE)
-    # Nimm letzten Snapshot pro TH
+    # Anlauf-Therapeuten (Start < 3 Monate, = 4W-Schwelle minMonateAktiv) ausschließen –
+    # konsistent zur App (include_in_site=false). NocoDB hat das Flag nicht, daher über das
+    # Beschäftigungs-Startdatum. Vorher trugen sie 0/0 bei (neutral); seit dem n8n-Bridging-
+    # Update liefern sie echte Anlaufwerte – ohne diesen Filter würden sie die KPI verfälschen.
+    bridge_cutoff = _anlauf_cutoff(today)
+    neu_th_ids = {t['id'] for t in bundle_th if _ist_anlauf_th(t, bridge_cutoff)}
+    # Nimm letzten Snapshot pro TH (Anlauf-TH übersprungen)
     latest_per_th = {}
     for r in auslast_records:
         mid = r.get('mitarbeiter_id')
         if mid not in th_ids: continue
+        if mid in neu_th_ids: continue
         d = r.get('datum','')
         if mid not in latest_per_th or d > latest_per_th[mid].get('datum',''):
             latest_per_th[mid] = r
