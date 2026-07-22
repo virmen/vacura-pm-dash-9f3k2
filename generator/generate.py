@@ -14,11 +14,29 @@ _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 EXCEL = os.environ.get('EXCEL_PATH') or os.path.expanduser('~/Code/Claude/Github/pm-dashboards/PM_Gehaltsmodell.xlsx')
 OUT_DIR = os.environ.get('OUT_DIR') or os.path.expanduser('~/Code/Claude/Github/pm-dashboards/code')
 
-# PKV/SZ-Aufschlag auf GKV-Tarif. Wirkt sich auf IST aus (termin_umsatz) und auf
-# den Hebel-Faktor (1 %-Pkt PKV ≈ (PKV_FAKTOR-1)*100 % Umsatz). Schwellen in STUFEN
-# sind auf 1,7 kalibriert — bei Änderung müssen die Schwellen rekalibriert oder
-# pro Bundle um den Mix-Faktor adjustiert werden.
-PKV_FAKTOR = 1.7
+# === Abrechnungs-Systematik (Valentin, 22.07.2026 — gegen MediFox Q1+Q2 backtestet) ===
+# Einheitspreis pro Zeitintervall (15 min): jede Behandlung wird mit Kalenderdauer/15
+# PLUS 1 ZI Vor-/Nachbereitung abgerechnet. Reproduziert die GKV-Staffel exakt:
+# 30 min = 3 ZI = 56,93 · 45 min = 4 ZI = 75,91 · 60 min = 5 ZI = 94,89.
+# Ausnahmen: thermische Anwendung/KT/WT immer 8,51 €; Hausbesuchspauschale +27,56 (nach Faktor-Logik: NICHT ×Faktor).
+# PKV (verordnungstyp 2) ×2,0 · Selbstzahler (3) ×1,7 — empirisch kalibriert (Monatsumsatz-Report V3).
+# Wirkt auf IST (termin_umsatz) und den Hebel-Faktor (1 %-Pkt PKV ≈ (PKV_FAKTOR-1)*100 % Umsatz).
+ZI_PREIS = 18.98
+THERMISCH_PREIS = 8.51
+PKV_FAKTOR = 2.0
+SZ_FAKTOR = 1.7
+HB_PAUSCHALE = 27.56
+# GKV-Schiedsspruch: +4,11 % auf alle Sätze für Behandlungen ab 01.07.2026
+ERHOEHUNG_AB = '2026-07-01'
+ERHOEHUNG_FAKTOR = 1.0411
+# Je VO: 10 € Verordnungsblattgebühr; je Blanko-VO zusätzlich 98,59 € Versorgungspauschale
+# (Pos. 54503) — zugeordnet dem Quartal des letzten VO-Termins.
+VO_BLATTGEBUEHR = 10.00
+BLANKO_PAUSCHALE = 98.59
+
+def satz_faktor(iso_datum):
+    """+4,11 % ab 01.07.2026 (Behandlungsdatum)."""
+    return ERHOEHUNG_FAKTOR if str(iso_datum) >= ERHOEHUNG_AB else 1.0
 
 # Stufen
 # STUFEN-Default: gilt für Tests + als Fallback.
@@ -392,6 +410,8 @@ def compute_pm(wb_or_ws, pm, q_label='Q1 2026'):
     enps    = ws_qb.cell(row=qb_row, column=5).value or 0
     vstd_ber = ws_qb.cell(row=qb_row, column=8).value
     abw_ber  = ws_qb.cell(row=qb_row, column=9).value
+    feiertage_ber = ws_qb.cell(row=qb_row, column=10).value or 0
+    verfueg_sheet = ws_qb.cell(row=qb_row, column=12).value
     ist      = ws_qb.cell(row=qb_row, column=11).value
 
     # Probezeit prüfen (für Q-Bewertungs-Ende ermittelt)
@@ -426,8 +446,13 @@ def compute_pm(wb_or_ws, pm, q_label='Q1 2026'):
     # aus PM-Std-Bundle und Wochenstunden-Verhältnis. Vereinfachung: vstd_ber als Proxy.
     vstd_bundle = vstd_ber
     
-    # Ableitung
-    verfueg = vstd_ber - abw_ber
+    # Ableitung: verfueg bevorzugt aus der Routine-Spalte 12; Fallback rechnet die
+    # Feiertage-Spalte mit ein (Q1-Altzeilen haben Feiertage bereits in Vstd/Abw
+    # verrechnet und Spalte 10 leer — dort ist der Abzug 0).
+    if isinstance(verfueg_sheet, (int, float)) and verfueg_sheet > 0:
+        verfueg = verfueg_sheet
+    else:
+        verfueg = vstd_ber - abw_ber - feiertage_ber
     eur60 = ist / verfueg
     zufr = ruecken*0.2 + komm*0.2 + enps*0.6
 
@@ -1604,12 +1629,14 @@ def _check_tarif_aenderungen(today_d, lookback_days=7, mix=None, hb_anteil=None)
     }
 
 def termin_umsatz(t):
-    """€-Umsatz eines Termins.
-    Tarife dynamisch aus NocoDB `verguetungssaetze` (Fallback hardcoded Stand 2026-06).
-    PKV-Faktor bleibt Modul-Konstante PKV_FAKTOR. Reihenfolge: ×PKV_FAKTOR für PKV/SZ,
-    Hausbesuch-Pauschale danach addiert (Pauschale NICHT × Faktor — Entscheidung 2026-06-03)."""
+    """€-Umsatz eines Termins nach ZI-Systematik (siehe Konstanten-Block oben).
+
+    (round(Dauer/15) + 1 VNB-ZI) × 18,98 € — die Kalenderdauer ist reine Behandlungszeit,
+    die Vor-/Nachbereitungs-ZI wird obendrauf abgerechnet. Thermische Anwendung/KT/WT
+    pauschal 8,51 €. PKV ×2,0, Selbstzahler ×1,7, Hausbesuch +27,56 € (Pauschale NICHT
+    × Faktor — Entscheidung 2026-06-03). +4,11 % ab 01.07.2026.
+    Backtest vs. MediFox-Bundle-Werte Q1+Q2 2026: −4,4 bis +1,7 % (inkl. VO-Gebühren)."""
     from datetime import datetime as _dt
-    import math
     try:
         beginn = _dt.fromisoformat(t['beginn'].replace('Z', '+00:00'))
         ende   = _dt.fromisoformat(t['ende'].replace('Z', '+00:00'))
@@ -1618,18 +1645,19 @@ def termin_umsatz(t):
         return 0.0
     if dauer <= 0: return 0.0
     datum = beginn.date().isoformat()
-    if dauer <= 20:   basis = _tarif_for('basis_bis_20', datum)
-    elif dauer <= 30: basis = _tarif_for('basis_bis_30', datum)
-    elif dauer <= 45: basis = _tarif_for('basis_bis_45', datum)
-    elif dauer <= 60: basis = _tarif_for('basis_bis_60', datum)
+    f = satz_faktor(datum)
+    bez = str(t.get('bezeichnung') or '').lower()
+    if 'thermisch' in bez or 'kälte' in bez or 'wärme' in bez or bez.strip() in ('wt', 'kt', 'urb'):
+        basis = THERMISCH_PREIS * f
     else:
-        basis_60  = _tarif_for('basis_bis_60', datum)
-        aufschlag = _tarif_for('aufschlag_je_15min_ueber_60', datum)
-        basis = basis_60 + math.ceil((dauer - 60) / 15) * aufschlag
-    if t.get('verordnungstyp') in (2, 3):
+        zi = round(dauer / 15) + 1
+        basis = zi * ZI_PREIS * f
+    if t.get('verordnungstyp') == 2:
         basis *= PKV_FAKTOR
+    elif t.get('verordnungstyp') == 3:
+        basis *= SZ_FAKTOR
     if t.get('is_hausbesuch'):
-        basis += _tarif_for('hausbesuch_pauschale', datum)
+        basis += HB_PAUSCHALE * f
     return basis
 
 BERLIN_FEIERTAGE = {
@@ -1855,6 +1883,33 @@ def compute_quartal(pm, q_start, q_end, today=None):
             ist += termin_umsatz(t)
             termine_count += 1
 
+    # VO-Gebühren: 10 € Blattgebühr je VO + 98,59 € je Blanko-VO, zugeordnet dem
+    # Quartal des LETZTEN VO-Termins (über alle Status, wie Monatsumsatz-Report V3).
+    # Kein TH-Fenster-Filter — Gebühren sind VO-Ebene, nicht Termin-Ebene.
+    vo_last = {}
+    for st in bundle_standorte:
+        for t in _fetch_all('mf2pw17nwfzlkd2', where=f'(filiale,eq,{st})'):
+            if t.get('deleted_at') or t.get('art') != 'normal' or t.get('is_blocker'):
+                continue
+            vo = str(t.get('verordnung_id') or '')
+            if not vo: continue
+            try:
+                b = _date.fromisoformat(t['beginn'][:10])
+            except Exception:
+                continue
+            cur = vo_last.get(vo)
+            if not cur or b >= cur['datum']:
+                vo_last[vo] = {'datum': b, 'blanko': (cur['blanko'] if cur else False) or bool(t.get('is_blanko'))}
+            elif t.get('is_blanko'):
+                cur['blanko'] = True
+    vo_gebuehren = 0.0
+    for vo in vo_last.values():
+        if q_start <= vo['datum'] <= effective_end:
+            vo_gebuehren += VO_BLATTGEBUEHR
+            if vo['blanko']:
+                vo_gebuehren += BLANKO_PAUSCHALE * satz_faktor(vo['datum'].isoformat())
+    ist += vo_gebuehren
+
     # Abw_ber: individuell pro Wochentag, eff_days-Range pro TH
     EXCLUDED_ARTS = {'krank', 'krankheit_kind', 'angefragt'}
     abw_records = _fetch_all('mwcnx74etcl1frq')
@@ -1923,6 +1978,7 @@ def compute_quartal(pm, q_start, q_end, today=None):
         'feiertage_ber': feiertage_ber,
         'verfueg': verfueg,
         'ist': ist,
+        'vo_gebuehren': vo_gebuehren,
         'eur60': eur60,
         'rechn_stufe': rechn_stufe,   # rechnerisch erreichte Stufe (motivierender Wert)
         'tats_stufe': tats_stufe,     # mit ±1-Deckel + Probezeit-Override (bewertungsrelevant)
@@ -2790,7 +2846,7 @@ def previous_q_label(today=None):
 
 
 # Historisch eingefrorene Quartale — werden niemals von Q-End-Routine überschrieben
-Q_LABELS_EINGEFROREN = {'2026-Q1'}
+Q_LABELS_EINGEFROREN = {'2026-Q1', '2026-Q2'}
 
 def run_q_end_routine(wb, q_label):
     """Q-End-Berechnung: schreibt Werte ins Quartals-Bewertungen-Sheet (Long-Format).
@@ -2819,6 +2875,20 @@ def run_q_end_routine(wb, q_label):
 
     results = []
     for pm_cfg in PMS:
+        # Zufr-Score aus den Input-Spalten der Q-Zeile + Vorquartals-Stufe für den
+        # ±1-Deckel an compute_quartal durchreichen — ohne das fällt zufr auf 0 zurück
+        # und jede PM landet fälschlich auf rechn/tats Stufe 1 (Bug bis 22.07.2026).
+        pm_cfg = dict(pm_cfg)
+        qrow = _find_qb_row(ws_qb, q_disp, pm_cfg['name'])
+        if qrow:
+            vals = [ws_qb.cell(row=qrow, column=c).value for c in (3, 4, 5)]
+            if all(isinstance(v, (int, float)) for v in vals):
+                pm_cfg['zufr'] = vals[0] * 0.2 + vals[1] * 0.2 + vals[2] * 0.6
+        prev_row = _find_qb_row(ws_qb, _previous_q_label_from(q_disp), pm_cfg['name'])
+        if prev_row:
+            prev_tats = ws_qb.cell(row=prev_row, column=15).value
+            if isinstance(prev_tats, (int, float)):
+                pm_cfg['start_stufe'] = int(prev_tats)
         result = compute_quartal(pm_cfg, q_start, q_end, today=q_end)
         if not result:
             print(f'  {pm_cfg["name"]}: compute_quartal lieferte None')
@@ -2926,9 +2996,12 @@ def _main():
 
     os.makedirs(OUT_DIR, exist_ok=True)
 
+    from datetime import date as _date_main
+    q_label_dash = vorquartal_label(_date_main.today())
+    print(f'  Bewertungs-Quartal für Dashboards: {q_label_dash}')
     for pm_cfg in PMS:
         print(f'  {pm_cfg["name"]}...')
-        pm_data = compute_pm(wb, pm_cfg, q_label='Q1 2026')
+        pm_data = compute_pm(wb, pm_cfg, q_label=q_label_dash)
         if not pm_data:
             print(f'    übersprungen (keine Daten)')
             continue
