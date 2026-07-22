@@ -281,8 +281,10 @@ def bundle_zulage_std_taggenau(pm, alle_pms, fenster_ende=None):
     - Fenster = rollierende 3 Monate statt Kalendermonat (geglättete, tagesaktuelle Sicht).
     - Neue PMs entlasten erst ab ihrem 29. Beschäftigungstag (Vertrag: ab Zuordnung) —
       bis dahin behalten die übrigen PMs ihre vollen Anteile.
+    - Neue THERAPEUT:INNEN zählen ab Tag 1 in die Bundle-Größe (Vertrag § 5 Nr. 5
+      letzter Satz: ab Tag 29) — Valentin 23.07.2026: der PM-Aufwand (Einarbeitung)
+      entsteht sofort; die 29-Tage-Regel bleibt allein in der €/h-Komponente.
     Vertragsgetreu umgesetzt:
-    - Neue TH zählen erst ab Tag 29 (§ 5 Nr. 5 letzter Satz).
     - Ausgeschiedene TH zählen taggenau bis zum Ende ihrer Beschäftigung — Zuordnung über
       das filiale-Einzelfeld ODER die filialen-Liste, weil das MediFox-Offboarding die
       filialen-Liste leert (Fall Siewert/Mitte).
@@ -313,11 +315,10 @@ def bundle_zulage_std_taggenau(pm, alle_pms, fenster_ende=None):
         fil_einzel = str(m.get('filiale') or '').lower()
         if not (any(f in standorte for f in fil_liste) or fil_einzel in standorte):
             continue
-        von = _als_datum(_th_earliest_beschaeftigung(m))
         ths.append({
             'bz': m.get('beschaeftigungszeiten') or [],
             'gruppen': m.get('arbeitszeit_gruppen') or [],
-            'zaehlt_ab': (von + _td(days=28)) if von else None,   # Tag 29 der Beschäftigung
+            'zaehlt_ab': None,   # TH zählen ab Tag 1 (Aufwand entsteht sofort — Valentin 23.07.2026)
         })
 
     team = []
