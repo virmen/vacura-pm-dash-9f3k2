@@ -14,7 +14,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-EXCEL_PATH = os.path.expanduser('~/Code/Claude/Github/pm-dashboards/PM_Gehaltsmodell.xlsx')
+EXCEL_PATH = os.path.expanduser('~/Code/Claude/Projekte/Gehaltsmodelle/Praxismanagement/PM_Gehaltsmodell.xlsx')
 
 
 @pytest.fixture(scope='module')

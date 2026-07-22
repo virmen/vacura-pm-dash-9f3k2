@@ -11,8 +11,8 @@ import openpyxl, os, sys, html, json
 from datetime import datetime, date
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-EXCEL = os.environ.get('EXCEL_PATH') or os.path.expanduser('~/Code/Claude/Github/pm-dashboards/PM_Gehaltsmodell.xlsx')
-OUT_DIR = os.environ.get('OUT_DIR') or os.path.expanduser('~/Code/Claude/Github/pm-dashboards/code')
+EXCEL = os.environ.get('EXCEL_PATH') or os.path.expanduser('~/Code/Claude/Projekte/Gehaltsmodelle/Praxismanagement/PM_Gehaltsmodell.xlsx')
+OUT_DIR = os.environ.get('OUT_DIR') or os.path.expanduser('~/Code/Claude/Projekte/Gehaltsmodelle/Praxismanagement/code')
 
 # === Abrechnungs-Systematik (Valentin, 22.07.2026 — gegen MediFox Q1+Q2 backtestet) ===
 # Einheitspreis pro Zeitintervall (15 min): jede Behandlung wird mit Kalenderdauer/15
@@ -2962,6 +2962,83 @@ def run_q_end_routine(wb, q_label):
 
 
 # ==== MAIN ====
+# GF-Übersicht: eine Seite mit Kennzahlen-Tabelle aller PMs + durchklickbaren
+# Einzel-Dashboards (iframe). Gleiche Sicherheits-Logik wie PM-Seiten: unguessbare
+# Token-URL. Token fix, damit die URL über Deploys stabil bleibt.
+ADMIN_TOKEN = '2233133804287bad4712ff06d9e49239'
+
+def render_uebersicht(items, q_label):
+    """items: Liste (pm_cfg, pm_data). Ergebnis: HTML der GF-Übersichtsseite."""
+    zeilen = []
+    tabs = []
+    for i, (cfg, d) in enumerate(items):
+        name = cfg['name']
+        token = TOKENS.get(name, '')
+        datei = f'{name.lower()}-{token}.html'
+        vermerk = 'Probezeit' if d.get('probezeit_aktiv') else ''
+        zeilen.append(f'''
+        <tr>
+          <td><b>{name}</b></td>
+          <td>{cfg.get('bundle_standorte', '')}</td>
+          <td>Stufe {d['tats_stufe']} ({d['tats_stufe_name']})</td>
+          <td style="text-align:right">{fmt_eur(d['eur60'], 2)} €/h</td>
+          <td style="text-align:right">{fmt_de(d['zufr'], 1)}</td>
+          <td style="text-align:right"><b>{fmt_eur(d['monatsgehalt'])} €</b></td>
+          <td>{vermerk}</td>
+        </tr>''')
+        tabs.append(f'<button class="tab{" aktiv" if i == 0 else ""}" data-src="{datei}">{name}</button>')
+    first_src = f"{items[0][0]['name'].lower()}-{TOKENS.get(items[0][0]['name'], '')}.html" if items else ''
+    return f'''<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>PM-Gehälter – Übersicht</title>
+<style>
+  * {{ margin:0; padding:0; box-sizing:border-box; }}
+  body {{ font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; background:#f4f6f6; color:#1a2e2e; }}
+  .kopf {{ background:#0D595A; color:#fff; padding:18px 24px; }}
+  .kopf h1 {{ font-size:19px; font-weight:700; }}
+  .kopf .sub {{ font-size:13px; opacity:0.85; margin-top:3px; }}
+  .inhalt {{ max-width:1100px; margin:0 auto; padding:20px 16px; }}
+  table {{ width:100%; border-collapse:collapse; background:#fff; border-radius:10px; overflow:hidden;
+           box-shadow:0 1px 4px rgba(0,0,0,0.08); font-size:14px; }}
+  th {{ background:#0D595A; color:#fff; text-align:left; padding:10px 12px; font-size:12.5px; }}
+  td {{ padding:10px 12px; border-bottom:1px solid #eceff0; }}
+  tr:last-child td {{ border-bottom:none; }}
+  .tabs {{ display:flex; gap:8px; margin:22px 0 10px; flex-wrap:wrap; }}
+  .tab {{ padding:9px 18px; border:1px solid #0D595A; background:#fff; color:#0D595A; border-radius:20px;
+          font-size:14px; font-weight:600; cursor:pointer; }}
+  .tab.aktiv {{ background:#0D595A; color:#fff; }}
+  iframe {{ width:100%; height:calc(100vh - 60px); border:1px solid #dfe5e5; border-radius:10px; background:#fff; }}
+  .hinweis {{ font-size:12px; color:#6b7a7a; margin:8px 0 16px; }}
+</style>
+</head>
+<body>
+<div class="kopf"><h1>PM-Gehälter – Übersicht (GF)</h1><div class="sub">Bewertungs-Quartal {q_label} · Stand automatisch beim täglichen Dashboard-Lauf</div></div>
+<div class="inhalt">
+  <table>
+    <tr><th>PM</th><th>Bundle</th><th>Stufe ({q_label})</th><th style="text-align:right">€/h</th><th style="text-align:right">Zufr.</th><th style="text-align:right">Monatsgehalt</th><th></th></tr>
+    {''.join(zeilen)}
+  </table>
+  <div class="tabs">{''.join(tabs)}</div>
+  <div class="hinweis">Klick auf einen Namen lädt das jeweilige PM-Dashboard unten — identisch mit dem, was die PM selbst sieht.</div>
+  <iframe id="frame" src="{first_src}"></iframe>
+</div>
+<script>
+  document.querySelectorAll('.tab').forEach(function(b) {{
+    b.addEventListener('click', function() {{
+      document.querySelectorAll('.tab').forEach(function(x) {{ x.classList.remove('aktiv'); }});
+      b.classList.add('aktiv');
+      document.getElementById('frame').src = b.dataset.src;
+    }});
+  }});
+</script>
+</body>
+</html>'''
+
+
 def _main():
     import argparse
     _ap = argparse.ArgumentParser()
@@ -3014,6 +3091,7 @@ def _main():
     from datetime import date as _date_main
     q_label_dash = vorquartal_label(_date_main.today())
     print(f'  Bewertungs-Quartal für Dashboards: {q_label_dash}')
+    alle_pm = []
     for pm_cfg in PMS:
         print(f'  {pm_cfg["name"]}...')
         pm_data = compute_pm(wb, pm_cfg, q_label=q_label_dash)
@@ -3027,6 +3105,13 @@ def _main():
         with open(out_path, 'w') as f:
             f.write(html_out)
         print(f'    → {out_path}  (Stufe {pm_data["tats_stufe"]}, {fmt_eur(pm_data["monatsgehalt"])} €/Monat)')
+        alle_pm.append((pm_cfg, pm_data))
+
+    if alle_pm:
+        ueb_path = os.path.join(OUT_DIR, f'uebersicht-{ADMIN_TOKEN}.html')
+        with open(ueb_path, 'w') as f:
+            f.write(render_uebersicht(alle_pm, q_label_dash))
+        print(f'  GF-Übersicht → {ueb_path}')
 
     print('\nFertig.')
 

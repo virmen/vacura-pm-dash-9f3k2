@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>PM-Gehälter – Übersicht</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; background:#f4f6f6; color:#1a2e2e; }
+  .kopf { background:#0D595A; color:#fff; padding:18px 24px; }
+  .kopf h1 { font-size:19px; font-weight:700; }
+  .kopf .sub { font-size:13px; opacity:0.85; margin-top:3px; }
+  .inhalt { max-width:1100px; margin:0 auto; padding:20px 16px; }
+  table { width:100%; border-collapse:collapse; background:#fff; border-radius:10px; overflow:hidden;
+           box-shadow:0 1px 4px rgba(0,0,0,0.08); font-size:14px; }
+  th { background:#0D595A; color:#fff; text-align:left; padding:10px 12px; font-size:12.5px; }
+  td { padding:10px 12px; border-bottom:1px solid #eceff0; }
+  tr:last-child td { border-bottom:none; }
+  .tabs { display:flex; gap:8px; margin:22px 0 10px; flex-wrap:wrap; }
+  .tab { padding:9px 18px; border:1px solid #0D595A; background:#fff; color:#0D595A; border-radius:20px;
+          font-size:14px; font-weight:600; cursor:pointer; }
+  .tab.aktiv { background:#0D595A; color:#fff; }
+  iframe { width:100%; height:calc(100vh - 60px); border:1px solid #dfe5e5; border-radius:10px; background:#fff; }
+  .hinweis { font-size:12px; color:#6b7a7a; margin:8px 0 16px; }
+</style>
+</head>
+<body>
+<div class="kopf"><h1>PM-Gehälter – Übersicht (GF)</h1><div class="sub">Bewertungs-Quartal Q2 2026 · Stand automatisch beim täglichen Dashboard-Lauf</div></div>
+<div class="inhalt">
+  <table>
+    <tr><th>PM</th><th>Bundle</th><th>Stufe (Q2 2026)</th><th style="text-align:right">€/h</th><th style="text-align:right">Zufr.</th><th style="text-align:right">Monatsgehalt</th><th></th></tr>
+    
+        <tr>
+          <td><b>Laura</b></td>
+          <td>Spandau, Mitte</td>
+          <td>Stufe 2 (Gut)</td>
+          <td style="text-align:right">69,05 €/h</td>
+          <td style="text-align:right">8,5</td>
+          <td style="text-align:right"><b>3.904 €</b></td>
+          <td></td>
+        </tr>
+        <tr>
+          <td><b>Marleen</b></td>
+          <td>Friedrichshain, Charlottenburg, Prenzlauer Berg</td>
+          <td>Stufe 2 (Gut)</td>
+          <td style="text-align:right">71,06 €/h</td>
+          <td style="text-align:right">7,8</td>
+          <td style="text-align:right"><b>3.904 €</b></td>
+          <td></td>
+        </tr>
+        <tr>
+          <td><b>Luise</b></td>
+          <td>Friedrichshain, Charlottenburg, Prenzlauer Berg</td>
+          <td>Stufe 1 (Basis)</td>
+          <td style="text-align:right">71,06 €/h</td>
+          <td style="text-align:right">9,2</td>
+          <td style="text-align:right"><b>3.333 €</b></td>
+          <td>Probezeit</td>
+        </tr>
+        <tr>
+          <td><b>Max</b></td>
+          <td>Spandau, Mitte</td>
+          <td>Stufe 1 (Basis)</td>
+          <td style="text-align:right">69,05 €/h</td>
+          <td style="text-align:right">9,1</td>
+          <td style="text-align:right"><b>2.500 €</b></td>
+          <td>Probezeit</td>
+        </tr>
+        <tr>
+          <td><b>Emily</b></td>
+          <td>Friedrichshain, Charlottenburg, Prenzlauer Berg</td>
+          <td>Stufe 1 (Basis)</td>
+          <td style="text-align:right">71,06 €/h</td>
+          <td style="text-align:right">0,0</td>
+          <td style="text-align:right"><b>3.333 €</b></td>
+          <td>Probezeit</td>
+        </tr>
+  </table>
+  <div class="tabs"><button class="tab aktiv" data-src="laura-8278b207ba9e80605ae5f1604d696759.html">Laura</button><button class="tab" data-src="marleen-0093979f8cf4df0f67ec20b6e35e6beb.html">Marleen</button><button class="tab" data-src="luise-52981192518b734a346928ed713bc015.html">Luise</button><button class="tab" data-src="max-5051837ce5b8f243f109306f60136f17.html">Max</button><button class="tab" data-src="emily-34ff01c507e5f18ac55f03759f68f856.html">Emily</button></div>
+  <div class="hinweis">Klick auf einen Namen lädt das jeweilige PM-Dashboard unten — identisch mit dem, was die PM selbst sieht.</div>
+  <iframe id="frame" src="laura-8278b207ba9e80605ae5f1604d696759.html"></iframe>
+</div>
+<script>
+  document.querySelectorAll('.tab').forEach(function(b) {
+    b.addEventListener('click', function() {
+      document.querySelectorAll('.tab').forEach(function(x) { x.classList.remove('aktiv'); });
+      b.classList.add('aktiv');
+      document.getElementById('frame').src = b.dataset.src;
+    });
+  });
+</script>
+</body>
+</html>

@@ -26,7 +26,7 @@ GitHub schickt dir eine Mail: „⏰ Q-End-Routine 2026-Q2 läuft in 7 Tagen —
 
 ## Schritt 2 — Excel öffnen, Werte eintragen
 
-**Excel-Datei:** `~/Code/Claude/Github/pm-dashboards/PM_Gehaltsmodell.xlsx`
+**Excel-Datei:** `~/Code/Claude/Projekte/Gehaltsmodelle/Praxismanagement/PM_Gehaltsmodell.xlsx`
 
 ### Tab `Quartals-Bewertungen` aufrufen
 
