@@ -1899,14 +1899,20 @@ def compute_quartal(pm, q_start, q_end, today=None):
     for st in bundle_standorte:
         termine = _fetch_all('mf2pw17nwfzlkd2', where=f'(filiale,eq,{st})')
         for t in termine:
-            if t.get('deleted_at'): continue
+            # Gelöschte Termine zählen, wenn sie als erbracht dokumentiert sind
+            # (Entscheidung 22.07.2026): MediFox löscht beim Offboarding auch
+            # VERGANGENE, abgerechnete Termine (Fall Siewert/Mitte, 451 Termine) —
+            # geleistete Arbeit darf dadurch nicht aus der Bewertung verschwinden.
+            # Gelöschte geplante bleiben draußen (= echte Absagen).
+            status = t.get('status')
+            ist_erbracht = status in ('erbracht', 'erbracht_und_unterschrieben')
+            if t.get('deleted_at') and not ist_erbracht: continue
             if t.get('art') != 'normal': continue
             if t.get('is_blocker') or t.get('is_passive_leistung'): continue
             try:
                 b = _date.fromisoformat(t['beginn'][:10])
             except Exception: continue
-            status = t.get('status')
-            if status in ('erbracht', 'erbracht_und_unterschrieben'):
+            if ist_erbracht:
                 gewicht = 1.0
             elif status == 'geplant' and (b.year, b.month) == letzter_monat:
                 gewicht = 0.8
@@ -1935,7 +1941,9 @@ def compute_quartal(pm, q_start, q_end, today=None):
     vo_last = {}
     for st in bundle_standorte:
         for t in _fetch_all('mf2pw17nwfzlkd2', where=f'(filiale,eq,{st})'):
-            if t.get('deleted_at') or t.get('art') != 'normal' or t.get('is_blocker'):
+            if t.get('deleted_at') and t.get('status') not in ('erbracht', 'erbracht_und_unterschrieben'):
+                continue
+            if t.get('art') != 'normal' or t.get('is_blocker'):
                 continue
             vo = str(t.get('verordnung_id') or '')
             if not vo: continue
