@@ -309,7 +309,7 @@ def bundle_zulage_std_taggenau(pm, alle_pms, fenster_ende=None):
 
     ths = []
     for m in ma:
-        if not m.get('is_therapeut'): continue
+        if not _ist_bundle_therapeut(m): continue
         if 'Online' in f"{m.get('vorname','')} {m.get('nachname','')}": continue
         fil_liste = [str(f).lower() for f in (m.get('filialen') or [])]
         fil_einzel = str(m.get('filiale') or '').lower()
@@ -1843,6 +1843,25 @@ def is_probezeit(startdatum, q_eval_end):
         return False
 
 
+def _ist_bundle_therapeut(m):
+    """Zählt m als (ggf. ausgeschiedene:r) Therapeut:in für Bundle-Rechnungen?
+
+    Offboarding setzt teils is_therapeut=False (Fall Siewert) — deshalb zählt auch
+    die Rolle 'Therapeut'. Geister-Schutz: Inaktive OHNE Beschäftigungs-Enddatum
+    (Datenlücke, z. B. Petersen mit 110-h-Müllwert, Testuser) bleiben draußen —
+    sonst stünden ihre Stunden dauerhaft ohne Umsatz im Nenner (Valentin 23.07.2026:
+    Ausgeschiedene taggenau in Zähler UND Nenner)."""
+    ist_th = m.get('is_therapeut') or any('therapeut' in str(r).lower()
+                                          for r in (m.get('rollen') or []))
+    if not ist_th:
+        return False
+    if m.get('is_active') is False:
+        bz = m.get('beschaeftigungszeiten') or []
+        if not bz or all(not e.get('Bis') for e in bz):
+            return False   # inaktiv ohne Enddatum → Datenlücke, nicht rechenbar
+    return True
+
+
 def _th_earliest_beschaeftigung(m):
     """Frühestes Beschäftigungs-Von-Datum (ISO) für 29-Tage-Sperre."""
     bz = m.get('beschaeftigungszeiten') or []
@@ -1939,9 +1958,10 @@ def compute_quartal(pm, q_start, q_end, today=None):
         return v is not None and v <= iso_29ago_end
 
     bundle_th = [m for m in ma
-                 if m.get('is_therapeut')
+                 if _ist_bundle_therapeut(m)
                  and 'Online' not in f"{m.get('vorname','')} {m.get('nachname','')}"
-                 and any(f in bundle_standorte for f in (m.get('filialen') or []))
+                 and (any(f in bundle_standorte for f in (m.get('filialen') or []))
+                     or str(m.get('filiale') or '').lower() in bundle_standorte)  # filiale-Einzelfeld: Offboarding leert die filialen-Liste — ausgeschiedene THs zählen taggenau (Valentin 23.07.2026)
                  and _aktiv_im_q(m)
                  and _seit_29tage_vor_eff_end(m)]
     th_ids = {m['id'] for m in bundle_th}
@@ -2221,9 +2241,10 @@ def compute_live_kpis(bundle_standorte, today=None):
     # 1) TH im Bundle
     ma = _fetch_all('mc934lbrlg7w6e1')
     bundle_th = [m for m in ma 
-                 if m.get('is_therapeut')
+                 if _ist_bundle_therapeut(m)
                  and 'Online' not in f"{m.get('vorname','')} {m.get('nachname','')}"
-                 and any(f in bundle_standorte for f in (m.get('filialen') or []))]
+                 and (any(f in bundle_standorte for f in (m.get('filialen') or []))
+                     or str(m.get('filiale') or '').lower() in bundle_standorte)]  # inkl. filiale-Einzelfeld (Offboarding leert filialen-Liste)
     th_ids = {t['id'] for t in bundle_th}
     
     # 2) AUSLASTUNG: aus Auslastung 4W Tabelle (rolling 30 Tage)
@@ -3122,7 +3143,10 @@ def run_q_end_routine(wb, q_label):
         # Diff zu MediFox
         mf = ws_qb.cell(row=row, column=6).value
         if isinstance(mf, (int, float)):
-            diff = result['ist'] - mf
+            # Like-for-like: MediFox-Standort-Exporte enthalten weder VO-Gebühren noch
+            # die 0,8×geplant-Korrektur — für den Sanity-Check beides herausrechnen.
+            ist_vgl = result['ist'] - result.get('vo_gebuehren', 0) - result.get('ist_geplant08', 0)
+            diff = ist_vgl - mf
             ws_qb.cell(row=row, column=17, value=round(diff))
             diff_pct = (diff / mf) * 100 if mf else 0
             status = '✓ OK' if abs(diff_pct) < 2 else f'⚠️ Diff {diff_pct:+.1f} %'
