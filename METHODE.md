@@ -179,7 +179,7 @@ tats_stufe = clamp(rechn_stufe, start_stufe − 1, start_stufe + 1)
 
 **Regel:** Neu eingestellte Therapeut:innen zählen **erst ab dem 29. Tag** ihres Arbeitsverhältnisses in die Stufen-Bewertung. Sowohl ihre Termine als auch ihre Vertragsstunden, Abwesenheiten und Feiertagsstunden werden in den ersten 28 Tagen ausgeklammert.
 
-**Rechtsgrundlage:** v9-Vertrag § 5 Nr. 1+5.
+**Referenz:** v9-Entwurf § 5 Nr. 1+5 (Stand Modell-Entwicklung Mai 2026 — Wortlaut der unterschriebenen Verträge nicht gegengeprüft).
 
 **Why:** In den ersten 4 Wochen liefert eine neue TH weder verlässlichen Umsatz noch verlässliche Bundle-Größen-Wirkung (Patienten-Aufbau, Onboarding-Phase). Pauschal-Sperre vermeidet Anreize zur Manipulation („Bundle wachsen lassen, bevor Q-Bewertung greift").
 
@@ -244,7 +244,7 @@ Jahres-Gehalt = Basis-Gehalt × (1 + Stufen-Zulage %) × Wochenstunden / 40
 
 ### 5.4 Probezeit-Regel
 
-**v9-Vertrag § 8 Abs. 3:** Während der **ersten 6 Monate** des PM-Arbeitsverhältnisses:
+**Probezeit-Regel (v9-Entwurf § 8 Abs. 3):** Während der **ersten 6 Monate** des PM-Arbeitsverhältnisses:
 - Stufe = 1 (Basis)
 - Stufen-Zulage = 0 %
 - **Bundle-Zulage = 0 €**
@@ -375,4 +375,4 @@ Die neuen Werte sind methodisch sauberer, aber die alten gelten als Bewertungsgr
 - **Deploy-Repo:** `virmen/vacura-pm-dash-9f3k2` → GitHub Pages
 - **Vergütungswerte:** Memory `reference_verguetungswerte.md`
 - **NocoDB-Termin-Schema:** Memory `reference_nocodb_termine.md`
-- **v9-Vertrag** (Personal-Akte): § 5 (29-Tage-Sperre), § 8 (Probezeit), § 2 Abs. 3 (Bundle-Zulage)
+- **v9-Vertrag** (Personal-Akte): § 5 (29-Tage-Sperre), § 8 (Probezeit), § 2 Abs. 3 (Bundle-Zulage) — §-Nummern aus dem Entwurfsstand der Modell-Entwicklung; vor vertragsverbindlichen Aussagen Wortlaut in der Personal-Akte prüfen

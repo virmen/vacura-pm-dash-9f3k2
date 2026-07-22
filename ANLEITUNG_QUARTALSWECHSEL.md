@@ -104,7 +104,7 @@ Wenn nicht klar: Geschäftsführung zur Klärung einbinden, ggf. Code-Logik in `
 
 Im Excel `Quartals-Bewertungen` für das jeweilige Q + PM die Zeile aufrufen:
 - `€/h`-Wert plausibel?
-- `Tats-Stufe` = max ±1 von Vorquartal-Stufe (das ist das Übersprungs-Limit nach v9-Vertrag § 5)
+- `Tats-Stufe` = max ±1 von Vorquartal-Stufe (±1-Übersprungs-Limit des Modells)
 - `Rechn-Stufe` zeigt was ohne ±1-Deckel rauskäme — bei Diskrepanz erklären
 
 ---

@@ -474,7 +474,7 @@ def compute_pm(wb_or_ws, pm, q_label='Q1 2026'):
     
     # TH-Äqui für Bundle-Zulage (Stichtagswert — keine 29-Tage-Sperre, siehe Memory).
     # Brutto-Vertragsstunden HEUTE aus NocoDB (v1-Methode, METHODE.md 5.2): die
-    # Bundle-Zulage läuft vertraglich monatlich mit der aktuellen Bundle-Größe —
+    # Bundle-Zulage läuft lt. Modell-Regel monatlich mit der aktuellen Bundle-Größe —
     # nicht mit dem Q-Schnappschuss. Der frühere vstd_ber-Proxy maß zudem wegen
     # LZ-Abzug ~1 VZÄ zu klein.
     stichtag = _ddate.today()
@@ -1679,7 +1679,8 @@ BERLIN_FEIERTAGE = {
 }
 
 def is_probezeit(startdatum, q_eval_end):
-    """True wenn PM am q_eval_end weniger als 6 Monate beschäftigt war (§ 8 Abs. 3 v9-Vertrag).
+    """True wenn PM am q_eval_end weniger als 6 Monate beschäftigt war
+    (Probezeit-Regel lt. Modell-Doku / v9-Entwurf § 8 Abs. 3 — Vertragswortlaut nicht gegengeprüft).
 
     Gemeinsame Helper-Funktion für compute_pm und compute_quartal — eine einzige
     Wahrheit für die Probezeit-Regel, damit beide Pfade niemals auseinanderdriften.
