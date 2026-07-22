@@ -127,3 +127,18 @@ def test_faktor_konstanten():
     """PKV 2,0 / SZ 1,7 als Modul-Konstanten (Kalibrierung Monatsumsatz-Report V3)"""
     assert PKV_FAKTOR == 2.0
     assert SZ_FAKTOR == 1.7
+
+
+# === Schwellen-Indexierung (§ 4 Abs. 6 Anpassungsvereinbarung) ===
+
+def test_schwellen_vor_juli_unveraendert():
+    from generate import stufen_eff, STUFEN
+    assert stufen_eff('2026-04-01') is STUFEN
+
+def test_schwellen_ab_juli_indexiert():
+    from generate import stufen_eff
+    neu = stufen_eff('2026-07-01')
+    assert abs(neu[1]['eur60'] - 69.27) < 0.01   # 66,54 × 1,0411
+    assert abs(neu[2]['eur60'] - 75.63) < 0.01   # 72,64 × 1,0411
+    assert neu[1]['zufr'] == 6.0                  # Zufr-Schwellen unverändert
+    assert neu[1]['zulage'] == 0.11               # Zulage-% unverändert

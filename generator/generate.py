@@ -38,6 +38,16 @@ def satz_faktor(iso_datum):
     """+4,11 % ab 01.07.2026 (Behandlungsdatum)."""
     return ERHOEHUNG_FAKTOR if str(iso_datum) >= ERHOEHUNG_AB else 1.0
 
+def stufen_eff(stichtag_iso):
+    """Stufen mit indexierten €/h-Schwellen (Anpassungsvereinbarung § 4 Abs. 6:
+    Ändern sich die GKV-/BG-Sätze, ändern sich die Schwellen im gleichen Maße und
+    zum gleichen Zeitpunkt — automatisch, ohne weitere Absprache). Stichtag =
+    Quartalsbeginn des bewerteten Zeitraums. Zufr-Schwellen + Zulage-% unverändert."""
+    f = satz_faktor(stichtag_iso)
+    if f == 1.0:
+        return STUFEN
+    return [{**s, 'eur60': round(s['eur60'] * f, 2)} for s in STUFEN]
+
 # Stufen
 # STUFEN-Default: gilt für Tests + als Fallback.
 # Excel-Tab `Stufentabelle` ist die Quelle der Wahrheit, wird beim Excel-Load eingelesen
@@ -456,9 +466,11 @@ def compute_pm(wb_or_ws, pm, q_label='Q1 2026'):
     eur60 = ist / verfueg
     zufr = ruecken*0.2 + komm*0.2 + enps*0.6
 
-    # Rechn. Stufe
+    # Rechn. Stufe — Schwellen datumsindexiert auf den Beginn des Bewertungsquartals (§ 4 Abs. 6)
+    q_start_iso = f'{year_x}-{(q_num_x - 1) * 3 + 1:02d}-01'
+    stufen_q = stufen_eff(q_start_iso)
     rechn = 0
-    for s in reversed(STUFEN):
+    for s in reversed(stufen_q):
         if eur60 >= s['eur60'] and zufr >= s['zufr']:
             rechn = s['n']; break
     
@@ -528,13 +540,14 @@ def compute_pm(wb_or_ws, pm, q_label='Q1 2026'):
         'bundle_standorte': pm['bundle_standorte'],
         'bundle_pms': pm['bundle_pms'],
         'probezeit_aktiv': probezeit_aktiv,
+        'stufen_eff': stufen_q,   # für Anzeige/Gap: Schwellen des Bewertungsquartals
     }
 
 def delta_naechste_stufe(pm_data):
     tats = pm_data['tats_stufe']
     if tats >= 6:
         return None
-    next_s = STUFEN[tats]
+    next_s = pm_data.get('stufen_eff', STUFEN)[tats]
     delta_eur60 = next_s['eur60'] - pm_data['eur60']
     delta_bundle_umsatz_quartal = (next_s['eur60'] - pm_data['eur60']) * pm_data['verfueg']
     delta_bundle_monat = delta_bundle_umsatz_quartal / 3
@@ -554,8 +567,8 @@ def delta_naechste_stufe(pm_data):
         'next_jahresgehalt': next_jahr,
         'next_monatsgehalt': next_monat,
         # Progress-Percent: wie weit im Gap
-        'progress_pct': max(0, min(100, (pm_data['eur60'] - STUFEN[tats-1]['eur60']) /
-                                        (next_s['eur60'] - STUFEN[tats-1]['eur60']) * 100)),
+        'progress_pct': max(0, min(100, (pm_data['eur60'] - pm_data.get('stufen_eff', STUFEN)[tats-1]['eur60']) /
+                                        (next_s['eur60'] - pm_data.get('stufen_eff', STUFEN)[tats-1]['eur60']) * 100)),
     }
 
 def hebel_optionen(pm_data, gap_data, live_kpis):
@@ -1951,9 +1964,10 @@ def compute_quartal(pm, q_start, q_end, today=None):
         return None
     eur60 = ist / verfueg
 
-    # rechn_stufe = rein aus eur60 + zufr (UND-Logik), OHNE Übersprungs-Limit
+    # rechn_stufe = rein aus eur60 + zufr (UND-Logik), OHNE Übersprungs-Limit.
+    # Schwellen datumsindexiert (§ 4 Abs. 6): ab Q3 2026 ×1,0411.
     rechn_stufe = 1
-    for s in reversed(STUFEN):
+    for s in reversed(stufen_eff(q_start.isoformat())):
         if eur60 >= s['eur60'] and pm.get('zufr', 0) >= s['zufr']:
             rechn_stufe = s['n']; break
 
@@ -2201,9 +2215,10 @@ def render_html(pm):
     bundle_pct = (pm['bundle_zulage'] * pm['wochenstd']/40) / total_width * 100
     stufe_pct = max(0, 100 - sockel_pct - bundle_pct)
     
-    # Stufen-Leiter
+    # Stufen-Leiter — Schwellen des Bewertungsquartals (datumsindexiert, § 4 Abs. 6)
+    stufen_anzeige = pm.get('stufen_eff', STUFEN)
     stufen_chips = []
-    for s in STUFEN:
+    for s in stufen_anzeige:
         cls = ''
         if s['n'] == pm['tats_stufe']: cls = 'current'
         elif s['n'] == pm['tats_stufe'] + 1: cls = 'next'
@@ -2215,8 +2230,8 @@ def render_html(pm):
         </div>''')
     
     # €/60min-Block: Schwelle aktuell + progress
-    curr_s = STUFEN[pm['tats_stufe']-1]
-    next_s = STUFEN[min(pm['tats_stufe'], 5)]
+    curr_s = stufen_anzeige[pm['tats_stufe']-1]
+    next_s = stufen_anzeige[min(pm['tats_stufe'], 5)]
     eur_progress = max(0, min(100, (pm['eur60'] - curr_s['eur60']) / 
                                    (next_s['eur60'] - curr_s['eur60']) * 100 if next_s != curr_s else 100))
     
