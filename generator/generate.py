@@ -255,6 +255,111 @@ def load_pms_from_excel(workbook):
     TOKENS = tokens
     return changed
 
+def _als_datum(v):
+    """Startdatum-Feld (date/datetime/str/None) → date oder None."""
+    from datetime import date as _d
+    if not v: return None
+    if hasattr(v, 'date'): return v.date()
+    if isinstance(v, _d): return v
+    try:
+        return _d.fromisoformat(str(v)[:10])
+    except Exception:
+        return None
+
+
+def bundle_zulage_std_taggenau(pm, alle_pms, fenster_ende=None):
+    """Bundle-Zulagen-Basis nach der Vertrags-Kaskade § 5 Nr. 5, rollierend über die
+    letzten 3 Monate, tagesaktuell (Valentin-Entscheidung 23.07.2026).
+
+    Pro Kalendertag: (a) Summe der vertraglichen Wochenstunden aller an diesem Tag dem
+    Bundle zugeordneten Therapeut:innen, kaufmännisch auf glatte 30er gerundet;
+    (b) PM-Anteil = eigene Wochenstunden ÷ Summe der Wochenstunden aller an diesem Tag
+    zählenden Bundle-PMs; (c) zurechenbare Stunden = (a) × (b), auf 30er gerundet;
+    (d) Tagesdurchschnitt über das Fenster, auf 30er gerundet → darauf die Staffel.
+
+    Bewusste Abweichungen vom Wortlaut (Nachtrags-Punkte):
+    - Fenster = rollierende 3 Monate statt Kalendermonat (geglättete, tagesaktuelle Sicht).
+    - Neue PMs entlasten erst ab ihrem 29. Beschäftigungstag (Vertrag: ab Zuordnung) —
+      bis dahin behalten die übrigen PMs ihre vollen Anteile.
+    Vertragsgetreu umgesetzt:
+    - Neue TH zählen erst ab Tag 29 (§ 5 Nr. 5 letzter Satz).
+    - Ausgeschiedene TH zählen taggenau bis zum Ende ihrer Beschäftigung — Zuordnung über
+      das filiale-Einzelfeld ODER die filialen-Liste, weil das MediFox-Offboarding die
+      filialen-Liste leert (Fall Siewert/Mitte).
+
+    Return: (zurechenbare_std, bundle_std_schnitt) — beide glatte 30er — oder (None, None)
+    bei NocoDB-Fehler (Caller nutzt den alten Stichtags-/Proxy-Pfad)."""
+    from datetime import date as _d, timedelta as _td
+    ende = fenster_ende or _d.today()
+    m3, y3 = ende.month - 3, ende.year
+    if m3 < 1: m3, y3 = m3 + 12, y3 - 1
+    try:
+        start = _d(y3, m3, ende.day)
+    except ValueError:
+        start = _d(y3, m3 + 1, 1) - _td(days=1)
+    standorte = tuple(sorted(s.strip().lower().replace(' ', '_')
+                             for s in str(pm.get('bundle_standorte') or '').split(',') if s.strip()))
+    try:
+        ma = _fetch_all('mc934lbrlg7w6e1')
+    except Exception as e:
+        print(f"    ⚠️  NocoDB für taggenaue Bundle-Zulage nicht erreichbar ({str(e)[:100]}) — Fallback Stichtags-Pfad")
+        return None, None
+
+    ths = []
+    for m in ma:
+        if not m.get('is_therapeut'): continue
+        if 'Online' in f"{m.get('vorname','')} {m.get('nachname','')}": continue
+        fil_liste = [str(f).lower() for f in (m.get('filialen') or [])]
+        fil_einzel = str(m.get('filiale') or '').lower()
+        if not (any(f in standorte for f in fil_liste) or fil_einzel in standorte):
+            continue
+        von = _als_datum(_th_earliest_beschaeftigung(m))
+        ths.append({
+            'bz': m.get('beschaeftigungszeiten') or [],
+            'gruppen': m.get('arbeitszeit_gruppen') or [],
+            'zaehlt_ab': (von + _td(days=28)) if von else None,   # Tag 29 der Beschäftigung
+        })
+
+    team = []
+    for p in alle_pms:
+        if p['name'] not in (pm.get('bundle_pms') or []): continue
+        sd = _als_datum(p.get('startdatum'))
+        team.append({'wochenstd': float(p.get('wochenstd') or 0),
+                     'zaehlt_ab': (sd + _td(days=28)) if sd else None})
+
+    def glatt30(x):
+        return round(x / 30) * 30
+
+    acc = bundle_acc = 0.0
+    tage = 0
+    d = start
+    while d <= ende:
+        iso = d.isoformat()
+        th_sum = 0.0
+        for th in ths:
+            if th['zaehlt_ab'] and d < th['zaehlt_ab']: continue
+            if not any((e.get('Von') is None or e['Von'] <= iso) and
+                       (e.get('Bis') is None or e['Bis'] >= iso) for e in th['bz']):
+                continue
+            gruppen = [g for g in th['gruppen']
+                       if (g.get('GueltigAb') or '0000') <= iso
+                       and (not g.get('GueltigBis') or g['GueltigBis'] >= iso)]
+            if not gruppen: continue
+            gruppen.sort(key=lambda g: g.get('GueltigAb') or '', reverse=True)
+            th_sum += float(gruppen[0].get('StundenProWoche', 0) or 0)
+        th_glatt = glatt30(th_sum)
+        nenner = sum(p['wochenstd'] for p in team
+                     if not (p['zaehlt_ab'] and d < p['zaehlt_ab']))
+        zger = glatt30(th_glatt * float(pm.get('wochenstd') or 0) / nenner) if nenner > 0 else 0
+        acc += zger
+        bundle_acc += th_glatt
+        tage += 1
+        d += _td(days=1)
+    if not tage:
+        return None, None
+    return glatt30(acc / tage), glatt30(bundle_acc / tage)
+
+
 def th_kumuliert(n_th):
     """TH-Zulage kumuliert für n TH-Äquivalente."""
     cum = 0
@@ -489,11 +594,18 @@ def compute_pm(wb_or_ws, pm, q_label='Q1 2026'):
     # Bundle-Zulage läuft lt. Modell-Regel monatlich mit der aktuellen Bundle-Größe —
     # nicht mit dem Q-Schnappschuss. Der frühere vstd_ber-Proxy maß zudem wegen
     # LZ-Abzug ~1 VZÄ zu klein.
-    stichtag = _ddate.today()
-    th_bundle = bundle_brutto_vzae(pm.get('bundle_standorte', ''), stichtag)
-    if th_bundle is None:
-        th_bundle = round(vstd_bundle / 13 / 30) if vstd_bundle else 0
-    th_pm = round(th_bundle * wochenstd / pm_std_bundle) if pm_std_bundle else 0
+    # Vertragliche Tages-Kaskade § 5 Nr. 5, rollierende 3 Monate (Entscheidung 23.07.2026);
+    # Fallback bei NocoDB-Fehler: alter Stichtags-VZÄ-Pfad bzw. vstd_ber-Proxy.
+    zger_std, bundle_std = bundle_zulage_std_taggenau(pm, PMS)
+    if zger_std is not None:
+        th_pm = int(round(zger_std / 30))
+        th_bundle = int(round(bundle_std / 30))
+    else:
+        stichtag = _ddate.today()
+        th_bundle = bundle_brutto_vzae(pm.get('bundle_standorte', ''), stichtag)
+        if th_bundle is None:
+            th_bundle = round(vstd_bundle / 13 / 30) if vstd_bundle else 0
+        th_pm = round(th_bundle * wochenstd / pm_std_bundle) if pm_std_bundle else 0
 
     # Probezeit wurde oben schon ermittelt (mit korrektem q_eval_end aus q_label)
     # Gehalt
