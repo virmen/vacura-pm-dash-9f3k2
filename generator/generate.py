@@ -1642,12 +1642,10 @@ def _check_tarif_aenderungen(today_d, lookback_days=7, mix=None, hb_anteil=None)
     }
 
 def _basis_preis(t, dauer):
-    """GKV-Grundpreis nach Therapieart × Dauer/Regeldauer — identisch mit der
-    Preislogik des Monatsumsatz-Reports V3 (Entscheidung 22.07.2026: Report-Rechnung
-    ist die gemeinsame Grundlage, weil am nächsten an MediFox — mittl. Abw. 1,4 %).
-    Für Standard-Dauern deckungsgleich mit der ZI-Systematik ((Dauer/15+1) × 18,98);
-    Unterschied nur bei von der Regeldauer abweichenden Behandlungen."""
-    import math
+    """GKV-Grundpreis: Festpreis-Ausnahmen (thermisch, Gruppen, Analyse, Bericht) +
+    ZI-Systematik für alle Behandlungen ((Dauer/15 + 1 VNB) × 18,98 €).
+    Einheitlich in allen fünf Instanzen (PM-Code, Monats-/Wochen-/SL-Report,
+    Reminder-Mail) seit 22.07.2026 abends."""
     bez = str(t.get('bezeichnung') or '').lower()
     bt = bez.strip()
     if 'thermisch' in bez or 'kälte' in bez or 'wärme' in bez or bt in ('wt', 'kt', 'urb'):
@@ -1660,18 +1658,12 @@ def _basis_preis(t, dauer):
     if 'integrationsberatung' in bez or 'beratung zur integration' in bez: return 152.32
     if 'funktionsanalyse' in bez or 'analyse ergotherapeutischer' in bez: return 41.46
     if 'übermittlung' in bez or 'bericht an' in bez: return 1.20
-    if 'hirnleistung' in bez or 'hlt' in bez: unit, regel = 56.93, 30
-    elif 'psychisch' in bez: unit, regel = 94.89, 60
-    elif 'sensomot' in bez: unit, regel = 75.91, 45
-    elif 'motorisch' in bez: unit, regel = 56.93, 30
-    else:
-        # Fallback ohne erkennbare Therapieart: ZI-Staffel
-        if dauer <= 20: return THERMISCH_PREIS
-        if dauer <= 30: return 3 * ZI_PREIS
-        if dauer <= 45: return 4 * ZI_PREIS
-        if dauer <= 60: return 5 * ZI_PREIS
-        return 5 * ZI_PREIS + math.ceil((dauer - 60) / 15) * ZI_PREIS
-    return unit * (dauer / regel) if dauer > 0 else unit
+    # Behandlung (alle Therapiearten): ZI-Systematik — Dauer/15 Behandlungs-ZI + 1 VNB-ZI,
+    # je 18,98 € (finale Entscheidung 22.07.2026 abends: „die ist wirklich genau";
+    # Beispiel 120 min = 8+1 = 9 ZI = 170,82 €). Ersetzt die Therapieart-lineare Form,
+    # die die eingebaute VNB bei langen Terminen mitskalierte (120-min-motorisch 227,72 €).
+    if dauer <= 0: return 0.0
+    return (round(dauer / 15) + 1) * ZI_PREIS
 
 def termin_umsatz(t):
     """€-Umsatz eines Termins — Preisform des Monatsumsatz-Reports V3 (siehe _basis_preis).
@@ -1893,20 +1885,33 @@ def compute_quartal(pm, q_start, q_end, today=None):
     if vstd_ber <= 0:
         return None
 
-    # IST aus Termine (Termin im TH-eff_days-Range)
+    # IST aus Termine (Termin im TH-eff_days-Range).
+    # Fairness-Regel (Valentin, 22.07.2026): geplante Termine im LETZTEN Monat des
+    # Bewertungsfensters zählen × 0,8 — ~80 % davon werden im Zuge der Abrechnung noch
+    # auf erbracht gesetzt; PMs sollen nicht für vergessenes Status-Abhaken bestraft
+    # werden. Gleicher Filter-Perimeter wie erbrachte (inkl. 29-Tage-Regel); zukünftige
+    # Termine sind über das eff_end-Fenster ohnehin ausgeschlossen.
     ist = 0.0
+    ist_geplant08 = 0.0
     termine_count = 0
     termine_skip_29d = 0
+    letzter_monat = (effective_end.year, effective_end.month)
     for st in bundle_standorte:
         termine = _fetch_all('mf2pw17nwfzlkd2', where=f'(filiale,eq,{st})')
         for t in termine:
             if t.get('deleted_at'): continue
             if t.get('art') != 'normal': continue
             if t.get('is_blocker') or t.get('is_passive_leistung'): continue
-            if t.get('status') not in ('erbracht', 'erbracht_und_unterschrieben'): continue
             try:
                 b = _date.fromisoformat(t['beginn'][:10])
             except Exception: continue
+            status = t.get('status')
+            if status in ('erbracht', 'erbracht_und_unterschrieben'):
+                gewicht = 1.0
+            elif status == 'geplant' and (b.year, b.month) == letzter_monat:
+                gewicht = 0.8
+            else:
+                continue
             ma_list = t.get('mitarbeiter') or []
             if not ma_list: continue
             mid = ma_list[0].get('Id')
@@ -1917,8 +1922,12 @@ def compute_quartal(pm, q_start, q_end, today=None):
                 termine_skip_29d += 1
                 continue
             if b > ee: continue
-            ist += termin_umsatz(t)
-            termine_count += 1
+            u = gewicht * termin_umsatz(t)
+            ist += u
+            if gewicht < 1.0:
+                ist_geplant08 += u
+            else:
+                termine_count += 1
 
     # VO-Gebühren: 10 € Blattgebühr je VO + 98,59 € je Blanko-VO, zugeordnet dem
     # Quartal des LETZTEN VO-Termins (über alle Status, wie Monatsumsatz-Report V3).
@@ -2016,6 +2025,7 @@ def compute_quartal(pm, q_start, q_end, today=None):
         'feiertage_ber': feiertage_ber,
         'verfueg': verfueg,
         'ist': ist,
+        'ist_geplant08': ist_geplant08,
         'vo_gebuehren': vo_gebuehren,
         'eur60': eur60,
         'rechn_stufe': rechn_stufe,   # rechnerisch erreichte Stufe (motivierender Wert)

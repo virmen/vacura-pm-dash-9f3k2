@@ -1,8 +1,8 @@
-"""Tests für termin_umsatz() — ZI-Systematik (Stand 22.07.2026).
+"""Tests für termin_umsatz() — finale ZI-Systematik (Entscheidung 22.07.2026 abends).
 
-Systematik: (round(Dauer/15) + 1 VNB-ZI) × 18,98 €. Thermische Anwendung/KT/WT
-pauschal 8,51 €. PKV ×2,0, Selbstzahler ×1,7, HB-Pauschale +27,56 (nach Faktor).
-+4,11 % ab 01.07.2026. Backtest vs. MediFox Q1+Q2 2026: −4,4 bis +1,7 %.
+Behandlung = (round(Dauer/15) + 1 VNB-ZI) × 18,98 € — für alle Therapiearten.
+Festpreis-Ausnahmen: thermisch/KT/WT 8,51 €, Gruppen, Analyse, Bericht.
+PKV ×2,0, Selbstzahler ×1,7, HB-Pauschale +27,56 (nach Faktor), +4,11 % ab 01.07.2026.
 HB-Reihenfolge (×Faktor erst, dann +Pauschale): METHODE.md Abschnitt 3.2.4
 """
 import sys, os
@@ -14,7 +14,6 @@ from generate import termin_umsatz, PKV_FAKTOR, SZ_FAKTOR, ZI_PREIS
 
 def make_termin(dauer_min, verordnungstyp=1, is_hausbesuch=False,
                 bezeichnung='Motorisch-funkt. Beh.', datum=(2026, 4, 1)):
-    """Konstruiert einen synthetischen Termin mit gegebener Dauer in Minuten."""
     from datetime import timedelta
     beginn = datetime(*datum, 9, 0, tzinfo=timezone.utc)
     ende = beginn + timedelta(minutes=dauer_min)
@@ -27,112 +26,97 @@ def make_termin(dauer_min, verordnungstyp=1, is_hausbesuch=False,
     }
 
 
-# === ZI-Staffel GKV (verordnungstyp=1): Dauer/15 + 1 VNB-ZI ===
+# === ZI-Systematik: Dauer/15 + 1 VNB-ZI, therapieart-unabhängig ===
 
-def test_dauer_30min_gkv():
-    """motorisch 30 min = Regeldauer: 56,93"""
-    assert abs(termin_umsatz(make_termin(30)) - 56.93) < 0.01
+def test_dauer_30min():
+    """2 + 1 = 3 ZI = 56,94"""
+    assert abs(termin_umsatz(make_termin(30)) - 3 * ZI_PREIS) < 0.01
 
-def test_dauer_45min_gkv():
-    """motorisch 45 min: 56,93 × 45/30 = 85,40 (Therapieart-linear, V3-Preisform)"""
-    assert abs(termin_umsatz(make_termin(45)) - 56.93 * 45 / 30) < 0.01
+def test_dauer_45min():
+    """3 + 1 = 4 ZI = 75,92 — NICHT therapieartlinear 85,40"""
+    assert abs(termin_umsatz(make_termin(45)) - 4 * ZI_PREIS) < 0.01
 
-def test_dauer_60min_gkv():
-    """motorisch 60 min: 56,93 × 60/30 = 113,86"""
-    assert abs(termin_umsatz(make_termin(60)) - 56.93 * 2) < 0.01
+def test_dauer_60min():
+    """4 + 1 = 5 ZI = 94,90"""
+    assert abs(termin_umsatz(make_termin(60)) - 5 * ZI_PREIS) < 0.01
 
-def test_sensomot_45min_gkv():
-    """sensomotorisch 45 min = Regeldauer: 75,91"""
-    assert abs(termin_umsatz(make_termin(45, bezeichnung='Sensomot.-perzept. Beh.')) - 75.91) < 0.01
+def test_dauer_120min():
+    """8 + 1 = 9 ZI = 170,82 (Valentins Referenzbeispiel)"""
+    assert abs(termin_umsatz(make_termin(120)) - 9 * ZI_PREIS) < 0.01
 
-def test_fallback_ohne_art_45min():
-    """ohne erkennbare Therapieart: ZI-Staffel 4 × 18,98"""
-    assert abs(termin_umsatz(make_termin(45, bezeichnung='')) - 4 * ZI_PREIS) < 0.01
-
-def test_dauer_75min_gkv():
-    """motorisch 75 min: 56,93 × 75/30 = 142,33"""
-    assert abs(termin_umsatz(make_termin(75)) - 56.93 * 75 / 30) < 0.01
-
-def test_dauer_20min_gkv():
-    """motorisch 20 min: 56,93 × 20/30 = 37,95"""
-    assert abs(termin_umsatz(make_termin(20)) - 56.93 * 20 / 30) < 0.01
+def test_sensomot_gleich_motorisch():
+    """Therapieart ändert den Behandlungspreis nicht — nur die Dauer zählt"""
+    a = termin_umsatz(make_termin(45, bezeichnung='Sensomot.-perzept. Beh.'))
+    b = termin_umsatz(make_termin(45, bezeichnung='Motorisch-funkt. Beh.'))
+    assert a == b
 
 
-# === Thermische Anwendung: immer 8,51 € ===
+# === Festpreis-Ausnahmen ===
 
 def test_thermisch_pauschal():
     t = make_termin(30, bezeichnung='Thermische Anwendung, Kälte/Wärme')
     assert abs(termin_umsatz(t) - 8.51) < 0.01
 
-def test_thermisch_unabhaengig_von_dauer():
-    kurz = make_termin(15, bezeichnung='Thermische Anwendung, Kälte/Wärme')
-    lang = make_termin(45, bezeichnung='Thermische Anwendung, Kälte/Wärme')
-    assert termin_umsatz(kurz) == termin_umsatz(lang)
+def test_gruppe_festpreis():
+    t = make_termin(60, bezeichnung='Gruppenbehandlung sensomotorisch')
+    assert abs(termin_umsatz(t) - 26.57) < 0.01
+
+def test_bericht_festpreis():
+    t = make_termin(10, bezeichnung='Übermittlung Bericht an Arzt')
+    assert abs(termin_umsatz(t) - 1.20) < 0.01
 
 
-# === Faktoren: PKV ×2,0 · Selbstzahler ×1,7 · BG wie GKV ===
+# === Faktoren ===
 
 def test_pkv_30min():
-    """motorisch 30 × 2,0 = 113,86"""
-    assert abs(termin_umsatz(make_termin(30, verordnungstyp=2)) - 56.93 * 2.0) < 0.01
+    """3 ZI × 2,0"""
+    assert abs(termin_umsatz(make_termin(30, verordnungstyp=2)) - 3 * ZI_PREIS * 2.0) < 0.01
 
 def test_selbstzahler_45min():
-    """SZ (verordnungstyp=3) ×1,7 — NICHT gleich PKV (×2,0)"""
     sz = termin_umsatz(make_termin(45, verordnungstyp=3))
     pkv = termin_umsatz(make_termin(45, verordnungstyp=2))
-    assert abs(sz - 56.93 * 45 / 30 * 1.7) < 0.01
+    assert abs(sz - 4 * ZI_PREIS * 1.7) < 0.01
     assert pkv > sz
 
-def test_bg_30min():
-    """BG (verordnungstyp=4) hat KEINEN Faktor — gleich wie GKV"""
-    bg = termin_umsatz(make_termin(30, verordnungstyp=4))
-    gkv = termin_umsatz(make_termin(30, verordnungstyp=1))
-    assert bg == gkv
+def test_bg_wie_gkv():
+    assert termin_umsatz(make_termin(30, verordnungstyp=4)) == termin_umsatz(make_termin(30, verordnungstyp=1))
 
 
-# === Hausbesuch-Pauschale (nach Faktor) ===
+# === Hausbesuch (Pauschale nach Faktor) ===
 
 def test_hb_gkv_45min():
-    """85,40 + 27,56 = 112,96"""
-    assert abs(termin_umsatz(make_termin(45, is_hausbesuch=True)) - (56.93 * 45 / 30 + 27.56)) < 0.01
+    assert abs(termin_umsatz(make_termin(45, is_hausbesuch=True)) - (4 * ZI_PREIS + 27.56)) < 0.01
 
 def test_hb_pkv_45min():
-    """Pauschale NACH Faktor: 85,40 × 2,0 + 27,56"""
     result = termin_umsatz(make_termin(45, verordnungstyp=2, is_hausbesuch=True))
-    assert abs(result - (56.93 * 45 / 30 * 2.0 + 27.56)) < 0.01
+    assert abs(result - (4 * ZI_PREIS * 2.0 + 27.56)) < 0.01
 
 def test_hb_pkv_NICHT_pauschale_mal_faktor():
-    """Sicherstellen, dass NICHT (basis + 27,56) × Faktor gerechnet wird (alter Bug)"""
-    falsch = (56.93 * 45 / 30 + 27.56) * 2.0
-    richtig = termin_umsatz(make_termin(45, verordnungstyp=2, is_hausbesuch=True))
-    assert richtig < falsch
+    falsch = (4 * ZI_PREIS + 27.56) * 2.0
+    assert termin_umsatz(make_termin(45, verordnungstyp=2, is_hausbesuch=True)) < falsch
 
 
-# === GKV-Erhöhung +4,11 % ab 01.07.2026 ===
+# === +4,11 % ab 01.07.2026 ===
 
 def test_erhoehung_ab_juli():
-    """Behandlung am 01.07.2026: 3 ZI × 18,98 × 1,0411"""
     t = make_termin(30, datum=(2026, 7, 1))
-    assert abs(termin_umsatz(t) - 56.93 * 1.0411) < 0.01
+    assert abs(termin_umsatz(t) - 3 * ZI_PREIS * 1.0411) < 0.01
 
 def test_keine_erhoehung_vor_juli():
     t = make_termin(30, datum=(2026, 6, 30))
-    assert abs(termin_umsatz(t) - 56.93) < 0.01
+    assert abs(termin_umsatz(t) - 3 * ZI_PREIS) < 0.01
 
 
 # === Edge-Cases ===
 
 def test_dauer_0():
-    """Dauer 0 → 0 €"""
     t = {'beginn': '2026-04-01T09:00:00Z', 'ende': '2026-04-01T09:00:00Z'}
     assert termin_umsatz(t) == 0.0
 
 def test_fehlende_zeitfelder():
-    """Wenn beginn/ende fehlen → 0 €"""
     assert termin_umsatz({}) == 0.0
 
 def test_faktor_konstanten():
-    """PKV 2,0 / SZ 1,7 als Modul-Konstanten (Kalibrierung Monatsumsatz-Report V3)"""
     assert PKV_FAKTOR == 2.0
     assert SZ_FAKTOR == 1.7
 
@@ -146,7 +130,7 @@ def test_schwellen_vor_juli_unveraendert():
 def test_schwellen_ab_juli_indexiert():
     from generate import stufen_eff
     neu = stufen_eff('2026-07-01')
-    assert abs(neu[1]['eur60'] - 69.27) < 0.01   # 66,54 × 1,0411
-    assert abs(neu[2]['eur60'] - 75.63) < 0.01   # 72,64 × 1,0411
-    assert neu[1]['zufr'] == 6.0                  # Zufr-Schwellen unverändert
-    assert neu[1]['zulage'] == 0.11               # Zulage-% unverändert
+    assert abs(neu[1]['eur60'] - 69.27) < 0.01
+    assert abs(neu[2]['eur60'] - 75.63) < 0.01
+    assert neu[1]['zufr'] == 6.0
+    assert neu[1]['zulage'] == 0.11
