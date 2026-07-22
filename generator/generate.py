@@ -2905,10 +2905,6 @@ def render_html(pm):
           <span class="hero-meta-value">{pm['bundle_standorte']}</span>
         </div>
         <div class="hero-meta-item">
-          <span class="hero-meta-label">Dein Team</span>
-          <span class="hero-meta-value">{(str(pm['bundle_team_kopf']) + ' Therapeut:innen · ') if pm.get('bundle_team_kopf') else ''}{fmt_eur(pm['bundle_std_wo'])} Wochenstunden</span>
-        </div>
-        <div class="hero-meta-item">
           <span class="hero-meta-label">Wochenstunden</span>
           <span class="hero-meta-value">{pm['wochenstd']} h</span>
         </div>
