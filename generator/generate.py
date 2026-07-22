@@ -322,11 +322,14 @@ def bundle_zulage_std_taggenau(pm, alle_pms, fenster_ende=None):
         })
 
     team = []
+    selbst_ab = None
     for p in alle_pms:
         if p['name'] not in (pm.get('bundle_pms') or []): continue
         sd = _als_datum(p.get('startdatum'))
-        team.append({'wochenstd': float(p.get('wochenstd') or 0),
-                     'zaehlt_ab': (sd + _td(days=28)) if sd else None})
+        ab = (sd + _td(days=28)) if sd else None
+        team.append({'wochenstd': float(p.get('wochenstd') or 0), 'zaehlt_ab': ab})
+        if p['name'] == pm.get('name'):
+            selbst_ab = ab
 
     def glatt30(x):
         return round(x / 30) * 30
@@ -351,7 +354,10 @@ def bundle_zulage_std_taggenau(pm, alle_pms, fenster_ende=None):
         th_glatt = glatt30(th_sum)
         nenner = sum(p['wochenstd'] for p in team
                      if not (p['zaehlt_ab'] and d < p['zaehlt_ab']))
-        zger = glatt30(th_glatt * float(pm.get('wochenstd') or 0) / nenner) if nenner > 0 else 0
+        if selbst_ab and d < selbst_ab:
+            zger = 0   # die PM selbst zählt vor ihrem Tag 29 nicht — kein Eigenanteil
+        else:
+            zger = glatt30(th_glatt * float(pm.get('wochenstd') or 0) / nenner) if nenner > 0 else 0
         acc += zger
         bundle_acc += th_glatt
         tage += 1
