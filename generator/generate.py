@@ -305,7 +305,7 @@ def bundle_zulage_std_taggenau(pm, alle_pms, fenster_ende=None):
         ma = _fetch_all('mc934lbrlg7w6e1')
     except Exception as e:
         print(f"    ⚠️  NocoDB für taggenaue Bundle-Zulage nicht erreichbar ({str(e)[:100]}) — Fallback Stichtags-Pfad")
-        return None, None
+        return None, None, None
 
     ths = []
     for m in ma:
@@ -363,8 +363,13 @@ def bundle_zulage_std_taggenau(pm, alle_pms, fenster_ende=None):
         tage += 1
         d += _td(days=1)
     if not tage:
-        return None, None
-    return glatt30(acc / tage), glatt30(bundle_acc / tage)
+        return None, None, None
+    # Heutige Team-Kopfzahl: an fenster_ende beschäftigte Bundle-THs
+    iso_ende = ende.isoformat()
+    kopf = sum(1 for th in ths
+               if any((e.get('Von') is None or e['Von'] <= iso_ende) and
+                      (e.get('Bis') is None or e['Bis'] >= iso_ende) for e in th['bz']))
+    return glatt30(acc / tage), glatt30(bundle_acc / tage), kopf
 
 
 def th_kumuliert(n_th):
@@ -603,11 +608,12 @@ def compute_pm(wb_or_ws, pm, q_label='Q1 2026'):
     # LZ-Abzug ~1 VZÄ zu klein.
     # Vertragliche Tages-Kaskade § 5 Nr. 5, rollierende 3 Monate (Entscheidung 23.07.2026);
     # Fallback bei NocoDB-Fehler: alter Stichtags-VZÄ-Pfad bzw. vstd_ber-Proxy.
-    zger_std, bundle_std = bundle_zulage_std_taggenau(pm, PMS)
+    zger_std, bundle_std, team_kopf = bundle_zulage_std_taggenau(pm, PMS)
     if zger_std is not None:
         th_pm = int(round(zger_std / 30))
         th_bundle = int(round(bundle_std / 30))
     else:
+        team_kopf = None
         stichtag = _ddate.today()
         th_bundle = bundle_brutto_vzae(pm.get('bundle_standorte', ''), stichtag)
         if th_bundle is None:
@@ -650,6 +656,8 @@ def compute_pm(wb_or_ws, pm, q_label='Q1 2026'):
         'tats_stufe_zulage_pct': stufe_zulage_pct,
         'th_bundle': th_bundle,
         'th_pm': th_pm,
+        'bundle_std_wo': bundle_std if zger_std is not None else th_bundle * 30,
+        'bundle_team_kopf': team_kopf,
         'bundle_zulage': bundle_zulage,
         'basis_gehalt': basis,
         'gehalt_formel': gehalt_formel,
@@ -2897,6 +2905,10 @@ def render_html(pm):
           <span class="hero-meta-value">{pm['bundle_standorte']}</span>
         </div>
         <div class="hero-meta-item">
+          <span class="hero-meta-label">Dein Team</span>
+          <span class="hero-meta-value">{(str(pm['bundle_team_kopf']) + ' Therapeut:innen · ') if pm.get('bundle_team_kopf') else ''}{fmt_eur(pm['bundle_std_wo'])} Wochenstunden</span>
+        </div>
+        <div class="hero-meta-item">
           <span class="hero-meta-label">Wochenstunden</span>
           <span class="hero-meta-value">{pm['wochenstd']} h</span>
         </div>
@@ -3180,6 +3192,7 @@ def render_uebersicht(items, q_label):
         <tr>
           <td><b>{name}</b></td>
           <td>{cfg.get('bundle_standorte', '')}</td>
+          <td>{(str(d.get('bundle_team_kopf')) + ' TH · ') if d.get('bundle_team_kopf') else ''}{fmt_eur(d.get('bundle_std_wo', 0))} h/Wo</td>
           <td>Stufe {d['tats_stufe']} ({d['tats_stufe_name']})</td>
           <td style="text-align:right">{fmt_eur(d['eur60'], 2)} €/h</td>
           <td style="text-align:right">{fmt_de(d['zufr'], 1)}</td>
@@ -3219,7 +3232,7 @@ def render_uebersicht(items, q_label):
 <div class="kopf"><h1>PM-Gehälter – Übersicht (GF)</h1><div class="sub">Bewertungs-Quartal {q_label} · Stand automatisch beim täglichen Dashboard-Lauf</div></div>
 <div class="inhalt">
   <table>
-    <tr><th>PM</th><th>Bundle</th><th>Stufe ({q_label})</th><th style="text-align:right">€/h</th><th style="text-align:right">Zufr.</th><th style="text-align:right">Monatsgehalt</th><th></th></tr>
+    <tr><th>PM</th><th>Bundle</th><th>Team</th><th>Stufe ({q_label})</th><th style="text-align:right">€/h</th><th style="text-align:right">Zufr.</th><th style="text-align:right">Monatsgehalt</th><th></th></tr>
     {''.join(zeilen)}
   </table>
   <div class="tabs">{''.join(tabs)}</div>
