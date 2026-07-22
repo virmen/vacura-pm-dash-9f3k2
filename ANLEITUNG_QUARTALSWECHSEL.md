@@ -135,6 +135,32 @@ In `PM-Stammdaten` Spalte 10 (Aktiv) auf `FALSE` setzen. Historische Q-Bewertung
 
 ---
 
+## Sonderfall: Neuer Standort / Bundle-Änderung
+
+Wenn ein Standort dazukommt, ein Bundle neu zugeschnitten wird oder PMs das Bundle wechseln, sind **zwei Stellen** zu pflegen:
+
+### 1. Excel `PM-Stammdaten` (Quelle der Wahrheit für den Generator)
+
+Bei **allen PMs des betroffenen Bundles** konsistent ändern:
+
+| Spalte | Was | Regel |
+|---|---|---|
+| 3 PM-Std-Bundle | Summe der Wochenstunden ALLER PMs im Bundle | muss bei allen Bundle-PMs identisch sein — sonst summieren sich die Zulage-Anteile nicht auf 100 % |
+| 6 Bundle-Standorte | komma-getrennte Standortnamen (z. B. „Spandau, Mitte") | Name muss dem NocoDB-Filiale-Slug entsprechen (Code normalisiert selbst auf lowercase + Unterstrich, „Prenzlauer Berg" → `prenzlauer_berg`) |
+| 7 Bundle-PMs | alle PM-Namen im Bundle, komma-getrennt | |
+
+Danach Excel ins Deploy-Repo pushen (siehe Schritt 2 der Routine). **Automatisch passiert dann:** Bundle-VZÄ und Bundle-Zulage ziehen live aus NocoDB über die Standort-Namen; die 29-Tage-Regel dämpft den Anlauf-Effekt neuer Therapeut:innen von selbst; Dashboards zeigen die neue Zuordnung beim nächsten Lauf.
+
+### 2. n8n-Workflow „Vacura – PM Quartals-Reminder" (`ZIOYjoecN7mfjtgk`)
+
+Im Code-Node **„Code Q-Start"** die Konstante `BUNDLES` anpassen (Standort-Slugs lowercase mit Unterstrich) und ggf. die PM-Link-Liste am Mail-Ende. Die Q-Start-Mail berechnet die Bundle-Umsätze eigenständig — vergisst man das Mapping, zeigt die Mail den neuen Standort nicht an.
+
+### Wichtig bei neuem Standort in der Anlaufphase
+
+Der Modell-Umsatz liegt während des Aufbaus **unter** dem MediFox-Standortumsatz, weil neue Therapeut:innen erst ab Tag 29 zählen (Stunden UND Umsatz). Das ist gewollt (schützt die PM-Bewertung vor Anlauf-Verwässerung) — Abweichungen in dieser Größenordnung im Status-Check also nicht als Fehler werten.
+
+---
+
 ## Tiefer einsteigen
 
 - **Berechnungs-Methodik** (wie wird €/h gerechnet, was ist die 29-Tage-Sperre etc.) → [`code/METHODE.md`](code/METHODE.md)

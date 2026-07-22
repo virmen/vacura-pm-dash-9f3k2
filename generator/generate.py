@@ -2179,7 +2179,20 @@ def render_html(pm):
 
     # Hero
     hero_stufe_text = f"Stufe {pm['tats_stufe']}"
-    
+    hero_probezeit_note = ''
+    einordnung_probezeit_note = ''
+    if pm.get('probezeit_aktiv'):
+        hero_stufe_text += ' · Probezeit'
+        hero_probezeit_note = ('<div class="hero-meta" style="margin-top:10px;font-size:13px;opacity:0.92;">'
+                               'Probezeit-Regel: In den ersten 6 Monaten gilt fest Stufe 1 — '
+                               'unabhängig von Umsatz und Zufriedenheit. Deine erste reguläre '
+                               'Bewertung folgt im Quartal nach Probezeit-Ende.</div>')
+        einordnung_probezeit_note = ('<p style="margin:0 0 14px;padding:10px 14px;background:rgba(13,89,90,0.08);'
+                                     'border-radius:8px;font-size:13.5px;">Hinweis: Du bist noch in der '
+                                     'Probezeit-Regel — deine Stufe ist deshalb fest auf 1 gesetzt, auch wenn '
+                                     'deine Werte unten bereits höhere Schwellen erreichen. Ab der ersten '
+                                     'regulären Bewertung zählen sie ganz normal.</p>')
+
     # Breakdown — Segment-Anteile
     ziel_gehalt = max(pm['gehalt_formel'], pm['mindest_anteilig'])
     total_width = pm['jahresgehalt']
@@ -2676,6 +2689,7 @@ def render_html(pm):
       <div class="hero-stufe">{hero_stufe_text}</div>
       <div class="hero-gehalt">{fmt_eur(pm['monatsgehalt'])} €</div>
       <div class="hero-gehalt-unit">Monatsgehalt ab {q_aktuell}</div>
+      {hero_probezeit_note}
       <div class="hero-meta">
         <div class="hero-meta-item">
           <span class="hero-meta-label">Jahresgehalt</span>
@@ -2734,6 +2748,7 @@ def render_html(pm):
   <div class="block">
     <div class="block-label">Einordnung</div>
     <div class="block-title">Woher kommt deine Stufe?</div>
+    {einordnung_probezeit_note}
     <p class="block-intro">Beide Werte müssen gleichzeitig die Schwelle erreichen. Umsatz und Team-Stimmung sind UND-verknüpft.</p>
     <div class="kpi-grid">
       <div class="kpi-card">
