@@ -158,3 +158,60 @@ def test_nicht_erschienen_ist_keine_schiene():
     """'nicht erschienen' enthält den Substring 'schiene' — darf NICHT 390 € bekommen"""
     t = make_termin(45, bezeichnung='Ergotherapie: nicht erschienen (AR)')
     assert abs(termin_umsatz(t) - 4 * ZI_PREIS) < 0.01
+
+
+# === Kaufmännische Rundung (Vertrag), nicht Banker's Rounding ===
+
+def test_kround_kaufmaennisch():
+    from generate import kround
+    assert kround(2.5) == 3      # Python round(2.5) wäre 2 (Banker's)
+    assert kround(0.5) == 1
+    assert kround(1.5) == 2
+    assert kround(0.125, 2) == 0.13   # round(0.125, 2) wäre 0.12
+
+def test_zi_anzahl_kaufmaennisch_gerundet():
+    """37,5 min / 15 = 2,5 → kaufmännisch 3 (+1 VNB = 4 ZI); Banker's ergäbe 3 ZI"""
+    t = make_termin(37.5)
+    assert abs(termin_umsatz(t) - 4 * ZI_PREIS) < 0.01
+
+
+# === Thermisch: PKV UND Selbstzahler ×2,0 (Valentin 23.07.2026) ===
+
+def test_thermisch_sz_zweifach():
+    t = make_termin(30, verordnungstyp=3, bezeichnung='Thermische Anwendung, Kälte/Wärme')
+    assert abs(termin_umsatz(t) - 8.51 * 2.0) < 0.01
+
+def test_thermisch_pkv_zweifach():
+    t = make_termin(30, verordnungstyp=2, bezeichnung='Thermische Anwendung, Kälte/Wärme')
+    assert abs(termin_umsatz(t) - 8.51 * 2.0) < 0.01
+
+def test_sz_faktor_sonst_unveraendert():
+    assert abs(termin_umsatz(make_termin(45, verordnungstyp=3)) - 4 * ZI_PREIS * 1.7) < 0.01
+
+
+# === Testkonten-Erkennung (MediFox-Testdaten) ===
+
+def test_testkonten_erkannt():
+    from generate import _ist_testkonto
+    assert _ist_testkonto('Testbär', 'Testerei')
+    assert _ist_testkonto('Testuser', 'Pberg')
+    assert _ist_testkonto('Test', 'User')
+    assert _ist_testkonto('Ben', 'Test')
+    assert _ist_testkonto('Jakob', 'Wense Test')
+    assert _ist_testkonto(None, 'Fritzen Test')
+    assert _ist_testkonto('test', 'test')
+
+def test_echte_namen_kein_testkonto():
+    from generate import _ist_testkonto
+    assert not _ist_testkonto('Nicolo', 'Testa')
+    assert not _ist_testkonto('Bärbel', 'Lehrheuer')
+    assert not _ist_testkonto('Bärbel', 'Sauermann')
+
+def test_test_termin_via_mitarbeiter():
+    from generate import _ist_test_termin
+    t = {'patient_vorname': 'Lea', 'patient_nachname': 'Wirtz',
+         'mitarbeiter': [{'Id': '3d746938-0f1a-4fae-b008-0173ccf373c6', 'Vorname': 'Testbär', 'Nachname': 'Testerei'}]}
+    assert _ist_test_termin(t)
+    t2 = {'patient_vorname': 'Lea', 'patient_nachname': 'Wirtz',
+          'mitarbeiter': [{'Id': 'x', 'Vorname': 'Sophia', 'Nachname': 'von Winkler'}]}
+    assert not _ist_test_termin(t2)

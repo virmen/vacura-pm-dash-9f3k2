@@ -39,6 +39,47 @@ ERHOEHUNG_FAKTOR = 1.0411
 VO_BLATTGEBUEHR = 10.00
 BLANKO_PAUSCHALE = 98.59
 
+def kround(x, nd=0):
+    """Kaufmännische Rundung (ROUND_HALF_UP) wie im Vertrag — NICHT Pythons
+    Banker's Rounding (round-half-even): round(2.5)=2, kround(2.5)=3.
+    Relevant z. B. für die ZI-Anzahl (37,5 min / 15 = 2,5 → 3 ZI) und €-Beträge."""
+    from decimal import Decimal, ROUND_HALF_UP
+    q = Decimal(1).scaleb(-nd)
+    r = float(Decimal(str(x)).quantize(q, rounding=ROUND_HALF_UP))
+    return int(r) if nd == 0 else r
+
+# === Testkonten (MediFox-Testdaten, Valentin 23.07.2026) ===
+# MediFox/NocoDB haben KEIN is_test-Flag — Erkennung über ID-Blockliste + enges Namensmuster:
+# Vorname beginnt mit 'test' ODER 'test' steht als eigenständiges Wort im Namen.
+# Echte Personen bleiben drin: "Nicolo Testa" (Nachname beginnt mit Test), "Bärbel …".
+TEST_MITARBEITER_IDS = {
+    '3d746938-0f1a-4fae-b008-0173ccf373c6',  # Testbär Testerei (aktiv, Friedrichshain, 24 h/W Vertrag!)
+    '44475589-2468-40d4-a066-7695b7f7ecc4',  # Testuser Pberg (inaktiv)
+    'd4d24e3a-1719-4c4c-a74d-b93c3eb2adce',  # Test User (aktiv, Admin+Therapeut, 4 Filialen)
+}
+import re as _re
+_TEST_WORT = _re.compile(r'\btest\b')
+
+def _ist_testkonto(vorname, nachname='', konto_id=None):
+    """True für MediFox-Testkonten (Mitarbeiter ODER Patienten) — die dürfen in
+    keiner Umsatz-/Stunden-/Bundle-Rechnung auftauchen."""
+    if konto_id and str(konto_id) in TEST_MITARBEITER_IDS:
+        return True
+    vn = str(vorname or '').strip().lower()
+    voll = f"{vn} {str(nachname or '').strip().lower()}"
+    return vn.startswith('test') or bool(_TEST_WORT.search(voll))
+
+def _ist_test_termin(t):
+    """Termin gehört zu einem Testkonto (Test-Patient ODER Test-Mitarbeiter)."""
+    if _ist_testkonto(t.get('patient_vorname'), t.get('patient_nachname'), t.get('patient_id')):
+        return True
+    return any(_ist_testkonto(m.get('Vorname'), m.get('Nachname'), m.get('Id'))
+               for m in (t.get('mitarbeiter') or []))
+
+def _ist_thermisch(bez, bt):
+    """Thermische Anwendung / Kälte- / Wärmetherapie (Festpreis 8,51; PKV UND SZ ×2,0)."""
+    return 'thermisch' in bez or 'kälte' in bez or 'wärme' in bez or bt in ('wt', 'kt', 'urb')
+
 def satz_faktor(iso_datum):
     """+4,11 % ab 01.07.2026 (Behandlungsdatum)."""
     return ERHOEHUNG_FAKTOR if str(iso_datum) >= ERHOEHUNG_AB else 1.0
@@ -51,7 +92,7 @@ def stufen_eff(stichtag_iso):
     f = satz_faktor(stichtag_iso)
     if f == 1.0:
         return STUFEN
-    return [{**s, 'eur60': round(s['eur60'] * f, 2)} for s in STUFEN]
+    return [{**s, 'eur60': kround(s['eur60'] * f, 2)} for s in STUFEN]
 
 # Stufen
 # STUFEN-Default: gilt für Tests + als Fallback.
@@ -339,6 +380,7 @@ def bundle_zulage_std_taggenau(pm, alle_pms, fenster_ende=None):
             for t in termine_st:
                 if t.get('art') != 'normal' or t.get('is_blocker'): continue
                 if t.get('status') not in ('erbracht', 'erbracht_und_unterschrieben'): continue
+                if _ist_test_termin(t): continue
                 ml = t.get('mitarbeiter') or []
                 if not ml: continue
                 mid = ml[0].get('Id')
@@ -357,7 +399,7 @@ def bundle_zulage_std_taggenau(pm, alle_pms, fenster_ende=None):
             selbst_ab = ab
 
     def glatt30(x):
-        return round(x / 30) * 30
+        return kround(x / 30) * 30
 
     acc = bundle_acc = 0.0
     tage = 0
@@ -437,6 +479,8 @@ def bundle_brutto_vzae(bundle_standorte, stichtag):
             continue
         if 'Online' in f"{m.get('vorname','')} {m.get('nachname','')}":
             continue
+        if _ist_testkonto(m.get('vorname'), m.get('nachname'), m.get('id')):
+            continue
         if not any(f in standorte for f in (m.get('filialen') or [])):
             continue
         bz = m.get('beschaeftigungszeiten') or []
@@ -451,7 +495,7 @@ def bundle_brutto_vzae(bundle_standorte, stichtag):
             continue
         gruppen.sort(key=lambda g: g.get('GueltigAb') or '', reverse=True)
         weekly += float(gruppen[0].get('StundenProWoche', 0) or 0)
-    vzae = round(weekly / 30)
+    vzae = kround(weekly / 30)
     _BUNDLE_VZAE_CACHE[key] = vzae
     return vzae
 
@@ -638,15 +682,15 @@ def compute_pm(wb_or_ws, pm, q_label='Q1 2026'):
     # Fallback bei NocoDB-Fehler: alter Stichtags-VZÄ-Pfad bzw. vstd_ber-Proxy.
     zger_std, bundle_std, team_kopf = bundle_zulage_std_taggenau(pm, PMS)
     if zger_std is not None:
-        th_pm = int(round(zger_std / 30))
-        th_bundle = int(round(bundle_std / 30))
+        th_pm = int(kround(zger_std / 30))
+        th_bundle = int(kround(bundle_std / 30))
     else:
         team_kopf = None
         stichtag = _ddate.today()
         th_bundle = bundle_brutto_vzae(pm.get('bundle_standorte', ''), stichtag)
         if th_bundle is None:
-            th_bundle = round(vstd_bundle / 13 / 30) if vstd_bundle else 0
-        th_pm = round(th_bundle * wochenstd / pm_std_bundle) if pm_std_bundle else 0
+            th_bundle = kround(vstd_bundle / 13 / 30) if vstd_bundle else 0
+        th_pm = kround(th_bundle * wochenstd / pm_std_bundle) if pm_std_bundle else 0
 
     # Probezeit wurde oben schon ermittelt (mit korrektem q_eval_end aus q_label)
     # Gehalt
@@ -657,10 +701,10 @@ def compute_pm(wb_or_ws, pm, q_label='Q1 2026'):
         bundle_zulage = th_kumuliert(th_pm)
     basis = 40000 + bundle_zulage
     stufe_zulage_pct = STUFEN[tats - 1]['zulage']
-    gehalt_formel = round(basis * (1 + stufe_zulage_pct) * (wochenstd / 40))
-    min_gehalt_anteilig = round(mindestgehalt * wochenstd / 40)
+    gehalt_formel = kround(basis * (1 + stufe_zulage_pct) * (wochenstd / 40))
+    min_gehalt_anteilig = kround(mindestgehalt * wochenstd / 40)
     jahr = max(gehalt_formel, min_gehalt_anteilig)
-    monat = round(jahr / 12)
+    monat = kround(jahr / 12)
     
     return {
         'name': pm['name'],
@@ -709,8 +753,8 @@ def delta_naechste_stufe(pm_data):
     # Gehaltsunterschied: next_gehalt - aktuelles_gehalt
     next_zulage = next_s['zulage']
     curr_zulage = pm_data['tats_stufe_zulage_pct']
-    next_jahr = round(pm_data['basis_gehalt'] * (1 + next_zulage) * (pm_data['wochenstd'] / 40))
-    next_monat = round(next_jahr / 12)
+    next_jahr = kround(pm_data['basis_gehalt'] * (1 + next_zulage) * (pm_data['wochenstd'] / 40))
+    next_monat = kround(next_jahr / 12)
     delta_monat = next_monat - pm_data['monatsgehalt']
     delta_jahr = next_jahr - pm_data['jahresgehalt']
     return {
@@ -1758,7 +1802,7 @@ def _check_tarif_aenderungen(today_d, lookback_days=7, mix=None, hb_anteil=None)
             'alt_wert': alt_w,
             'neu_wert': neu_w,
             'gueltig_ab': new['gueltig_ab'][:10],
-            'delta_pct': round((neu_w / alt_w - 1) * 100, 2) if alt_w else 0,
+            'delta_pct': kround((neu_w / alt_w - 1) * 100, 2) if alt_w else 0,
         })
 
     if not changes:
@@ -1784,13 +1828,13 @@ def _check_tarif_aenderungen(today_d, lookback_days=7, mix=None, hb_anteil=None)
 
     empfohlen = [{
         'n': s['n'], 'name': s['name'],
-        'alt_eur60': round(s['eur60'], 2),
-        'neu_eur60': round(s['eur60'] * scale, 2),
+        'alt_eur60': kround(s['eur60'], 2),
+        'neu_eur60': kround(s['eur60'] * scale, 2),
     } for s in STUFEN]
 
     return {
         'changes': changes,
-        'scale_factor': round(scale, 4),
+        'scale_factor': kround(scale, 4),
         'empfohlen_schwellen': empfohlen,
         'mix_used': mix,
         'hb_anteil': hb_anteil,
@@ -1803,7 +1847,7 @@ def _basis_preis(t, dauer):
     Reminder-Mail) seit 22.07.2026 abends."""
     bez = str(t.get('bezeichnung') or '').lower()
     bt = bez.strip()
-    if 'thermisch' in bez or 'kälte' in bez or 'wärme' in bez or bt in ('wt', 'kt', 'urb'):
+    if _ist_thermisch(bez, bt):
         return THERMISCH_PREIS
     if 'gruppe' in bez:
         if 'psychisch' in bez: return 46.50
@@ -1824,7 +1868,7 @@ def _basis_preis(t, dauer):
     # Beispiel 120 min = 8+1 = 9 ZI = 170,82 €). Ersetzt die Therapieart-lineare Form,
     # die die eingebaute VNB bei langen Terminen mitskalierte (120-min-motorisch 227,72 €).
     if dauer <= 0: return 0.0
-    return (round(dauer / 15) + 1) * ZI_PREIS
+    return (kround(dauer / 15) + 1) * ZI_PREIS
 
 def termin_umsatz(t):
     """€-Umsatz eines Termins — Preisform des Monatsumsatz-Reports V3 (siehe _basis_preis).
@@ -1841,10 +1885,13 @@ def termin_umsatz(t):
     datum = beginn.date().isoformat()
     f = satz_faktor(datum)
     basis = _basis_preis(t, dauer) * f
+    bez = str(t.get('bezeichnung') or '').lower()
     if t.get('verordnungstyp') == 2:
         basis *= PKV_FAKTOR
     elif t.get('verordnungstyp') == 3:
-        basis *= SZ_FAKTOR
+        # Thermische Anwendung kostet auch bei Selbstzahlern den ZWEIFACHEN Satz
+        # (Valentin 23.07.2026) — sonst SZ-Faktor 1,7.
+        basis *= PKV_FAKTOR if _ist_thermisch(bez, bez.strip()) else SZ_FAKTOR
     if t.get('is_hausbesuch'):
         basis += HB_PAUSCHALE * f
     return basis
@@ -1893,6 +1940,8 @@ def _ist_bundle_therapeut(m):
     (Datenlücke, z. B. Petersen mit 110-h-Müllwert, Testuser) bleiben draußen —
     sonst stünden ihre Stunden dauerhaft ohne Umsatz im Nenner (Valentin 23.07.2026:
     Ausgeschiedene taggenau in Zähler UND Nenner)."""
+    if _ist_testkonto(m.get('vorname'), m.get('nachname'), m.get('id')):
+        return False   # MediFox-Testkonten (z. B. Testbär/Friedrichshain) nie mitzählen
     ist_th = m.get('is_therapeut') or any('therapeut' in str(r).lower()
                                           for r in (m.get('rollen') or []))
     if not ist_th:
@@ -2018,6 +2067,7 @@ def compute_quartal(pm, q_start, q_end, today=None):
         for t in _fetch_all('mf2pw17nwfzlkd2', where=f'(filiale,eq,{st})'):
             if t.get('art') != 'normal' or t.get('is_blocker'): continue
             if t.get('status') not in ('erbracht', 'erbracht_und_unterschrieben'): continue
+            if _ist_test_termin(t): continue
             ml = t.get('mitarbeiter') or []
             if not ml: continue
             mid = ml[0].get('Id')
@@ -2118,6 +2168,7 @@ def compute_quartal(pm, q_start, q_end, today=None):
             if not ist_erbracht: continue   # Stufe (1): ausschließlich erbrachte
             if t.get('art') != 'normal': continue
             if t.get('is_blocker') or t.get('is_passive_leistung'): continue
+            if _ist_test_termin(t): continue
             try:
                 b = _date.fromisoformat(t['beginn'][:10])
             except Exception: continue
@@ -2319,6 +2370,7 @@ def compute_live_kpis(bundle_standorte, today=None):
             if b < q_start or b > today: continue
             if t.get('status') not in ('erbracht','erbracht_und_unterschrieben'): continue
             if t.get('art') != 'normal': continue
+            if _ist_test_termin(t): continue
             total_count += 1
             if t.get('verordnungstyp') in (2, 3):
                 pkv_count += 1
@@ -3165,14 +3217,14 @@ def run_q_end_routine(wb, q_label):
         zufr = None
         if all(isinstance(v, (int, float)) for v in (ruecken, komm, enps)):
             zufr = ruecken*0.2 + komm*0.2 + enps*0.6
-            ws_qb.cell(row=row, column=7, value=round(zufr, 2))
+            ws_qb.cell(row=row, column=7, value=kround(zufr, 2))
         # Code-Output-Spalten 8-19
-        ws_qb.cell(row=row, column=8, value=round(result['vstd_ber'], 1))
-        ws_qb.cell(row=row, column=9, value=round(result['abw_ber'], 1))
-        ws_qb.cell(row=row, column=10, value=round(result['feiertage_ber'], 1))
-        ws_qb.cell(row=row, column=11, value=round(result['ist']))
-        ws_qb.cell(row=row, column=12, value=round(result['verfueg'], 1))
-        ws_qb.cell(row=row, column=13, value=round(result['eur60'], 2))
+        ws_qb.cell(row=row, column=8, value=kround(result['vstd_ber'], 1))
+        ws_qb.cell(row=row, column=9, value=kround(result['abw_ber'], 1))
+        ws_qb.cell(row=row, column=10, value=kround(result['feiertage_ber'], 1))
+        ws_qb.cell(row=row, column=11, value=kround(result['ist']))
+        ws_qb.cell(row=row, column=12, value=kround(result['verfueg'], 1))
+        ws_qb.cell(row=row, column=13, value=kround(result['eur60'], 2))
         ws_qb.cell(row=row, column=14, value=result['rechn_stufe'])
         ws_qb.cell(row=row, column=15, value=result['tats_stufe'])
         ws_qb.cell(row=row, column=16, value='Ja' if result.get('probezeit_aktiv') else 'Nein')
@@ -3183,7 +3235,7 @@ def run_q_end_routine(wb, q_label):
             # die 0,8×geplant-Korrektur — für den Sanity-Check beides herausrechnen.
             ist_vgl = result['ist'] - result.get('vo_gebuehren', 0) - result.get('ist_geplant08', 0)
             diff = ist_vgl - mf
-            ws_qb.cell(row=row, column=17, value=round(diff))
+            ws_qb.cell(row=row, column=17, value=kround(diff))
             diff_pct = (diff / mf) * 100 if mf else 0
             # MediFox-Spalte = echter Standort-Export (erbrachte Termine). Modell-IST
             # (Stufe 1) kann durch 29-Tage-Regel/Deaktivierungs-Abzug DARUNTER liegen —
