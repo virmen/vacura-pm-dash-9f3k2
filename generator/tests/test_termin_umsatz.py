@@ -134,3 +134,13 @@ def test_schwellen_ab_juli_indexiert():
     assert abs(neu[2]['eur60'] - 75.63) < 0.01
     assert neu[1]['zufr'] == 6.0
     assert neu[1]['zulage'] == 0.11
+
+
+def test_einzelbehandlung_inkl_integrationsberatung_ist_behandlung():
+    """„Einzelbehandlung inkl. Beratung zur Integration" = Behandlung (ZI), NICHT 152,32-Festpreis"""
+    t = make_termin(45, bezeichnung='Motorisch-funktionelle Behandlung: Einzelbehandlung inkl. Beratung zur Integration in das soziale Umfeld')
+    assert abs(termin_umsatz(t) - 4 * ZI_PREIS) < 0.01
+
+def test_reine_integrationsberatung_festpreis():
+    t = make_termin(60, bezeichnung='Integrationsberatung')
+    assert abs(termin_umsatz(t) - 152.32) < 0.01

@@ -1805,7 +1805,9 @@ def _basis_preis(t, dauer):
         if 'sensomot' in bez: return 26.57
         if 'hlt' in bez or 'hirnleistung' in bez: return 26.57
         return 19.93
-    if 'integrationsberatung' in bez or 'beratung zur integration' in bez: return 152.32
+    # „…Einzelbehandlung inkl. Beratung zur Integration…" ist eine BEHANDLUNG (ZI-Formel),
+    # nur die eigenständige „Integrationsberatung" ist der 152,32-Festpreis (Fix 23.07.2026)
+    if ('integrationsberatung' in bez or 'beratung zur integration' in bez) and 'behandlung' not in bez: return 152.32
     if 'funktionsanalyse' in bez or 'analyse ergotherapeutischer' in bez: return 41.46
     if 'übermittlung' in bez or 'bericht an' in bez: return 1.20
     # Behandlung (alle Therapiearten): ZI-Systematik — Dauer/15 Behandlungs-ZI + 1 VNB-ZI,
