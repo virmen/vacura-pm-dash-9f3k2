@@ -171,3 +171,28 @@ Der Modell-Umsatz liegt während des Aufbaus **unter** dem MediFox-Standortumsat
 
 - **Methodische Fragen** (Stufen-Schwellen, Faktoren): Geschäftsführung Vacura
 - **Technische Probleme** (Code, GitHub Actions): Claude-Agent / Repo `virmen/vacura-pm-dash-9f3k2`
+
+---
+
+## WICHTIG: Umsatzbegriffe — damit keine Fehler passieren (Stand 23.07.2026)
+
+**Gehaltsbewertung (Quartal PM / Halbjahr SL) rechnet STUFE (1): nur erbrachte Termine.**
+Das ist deckungsgleich mit dem MediFox-Standort-Export (validiert H1/2026: ±1,4 % je Standort).
+Keine VO-Gebühren, kein 0,8×geplant im Gehalts-IST — sonst verschiebt sich die Messlatte
+gegenüber den vertraglich fixen Stufen-Schwellen.
+
+| Auswertung | Umsatzbegriff |
+|---|---|
+| Quartal (PM-Gehälter), Halbjahr (SL), Reminder-Mail | **Stufe (1):** nur erbrachte Termine |
+| Monatsreport (Kopfzahl) | Stufe (1) + 0,8×geplant + VO-Gebühren, × 0,98 |
+| Wochenreport | Stufe (1) + geplante ×0,8 (Forecast), ohne VO-Gebühren |
+
+Immer enthalten: nachträglich gelöschte erbrachte Termine (MediFox-Offboarding löscht auch
+abgerechnete Termine!); inaktive Therapeut:innen zählen bis zu ihrem letzten erbrachten
+Termin (Stunden UND Umsatz — Deaktivierungs-Regel). Neue Therapeut:innen: 29-Tage-Sperre
+nur in der €/h-Bewertung; in der Bundle-Zulagen-Größe zählen sie ab Tag 1.
+
+**MediFox-IST-Spalte im Excel:** dort gehört der ECHTE MediFox-Standort-Export (Bundle-Summe)
+hinein — die Q-Start-Mail liefert den passenden Vergleichswert. Negative Diffs bis ~10 %
+sind bei Standort-Aufbau/Austritten erwartbar (29-Tage-/Deaktivierungs-Abzug); nur
+Modell ÜBER MediFox (> +2 %) ist ein Warnsignal.

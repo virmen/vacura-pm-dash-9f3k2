@@ -376,3 +376,19 @@ Die neuen Werte sind methodisch sauberer, aber die alten gelten als Bewertungsgr
 - **Vergütungswerte:** Memory `reference_verguetungswerte.md`
 - **NocoDB-Termin-Schema:** Memory `reference_nocodb_termine.md`
 - **v9-Vertrag** (Personal-Akte): § 5 (29-Tage-Sperre), § 8 (Probezeit), § 2 Abs. 3 (Bundle-Zulage) — §-Nummern aus dem Entwurfsstand der Modell-Entwicklung; vor vertragsverbindlichen Aussagen Wortlaut in der Personal-Akte prüfen
+
+---
+
+## Umsatzbegriff der Gehaltsbewertung (FINAL, 23.07.2026) — NICHT wieder anreichern!
+
+Das Bewertungs-IST (compute_quartal) ist **Stufe (1): ausschließlich erbrachte Termine**
+(Status erbracht/erbracht_und_unterschrieben, alle Leistungsarten inkl. Funktionsanalysen,
+thermischer Anwendungen etc.), bepreist nach ZI-Systematik. Validierung H1/2026 gegen
+MediFox-Standort-Exporte: alle 5 Standorte ±1,4 %, gesamt +0,3 %.
+
+Bewusst NICHT im Gehalts-IST (nur in Umsatz-Reports): VO-Blattgebühren, Blanko-Pauschalen,
+0,8×geplante. Historie: Diese Komponenten waren am 22.07. kurzzeitig im Bewertungs-IST und
+hätten die Stufen-Messlatte um ~8–12 % verschoben — am 23.07. bewusst zurückgenommen.
+
+Immer enthalten: gelöschte erbrachte Termine (Offboarding-Schutz). Inaktive THs zählen bis
+zum letzten erbrachten Termin (Deaktivierungs-Regel, symmetrisch Zähler+Nenner).

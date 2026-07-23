@@ -316,10 +316,30 @@ def bundle_zulage_std_taggenau(pm, alle_pms, fenster_ende=None):
         if not (any(f in standorte for f in fil_liste) or fil_einzel in standorte):
             continue
         ths.append({
+            'id': m.get('id'),
+            'inaktiv': m.get('is_active') is False,
             'bz': m.get('beschaeftigungszeiten') or [],
             'gruppen': m.get('arbeitszeit_gruppen') or [],
             'zaehlt_ab': None,   # TH zählen ab Tag 1 (Aufwand entsteht sofort — Valentin 23.07.2026)
         })
+
+    # Deaktivierungs-Regel: inaktive THs zählen bis zu ihrem letzten erbrachten Termin
+    letzter_erbracht = {}
+    if any(th['inaktiv'] for th in ths):
+        for st in standorte:
+            try:
+                termine_st = _fetch_all('mf2pw17nwfzlkd2', where=f'(filiale,eq,{st})')
+            except Exception:
+                termine_st = []
+            for t in termine_st:
+                if t.get('art') != 'normal' or t.get('is_blocker'): continue
+                if t.get('status') not in ('erbracht', 'erbracht_und_unterschrieben'): continue
+                ml = t.get('mitarbeiter') or []
+                if not ml: continue
+                mid = ml[0].get('Id')
+                d = str(t.get('beginn') or '')[:10]
+                if mid and d and (mid not in letzter_erbracht or d > letzter_erbracht[mid]):
+                    letzter_erbracht[mid] = d
 
     team = []
     selbst_ab = None
@@ -342,6 +362,9 @@ def bundle_zulage_std_taggenau(pm, alle_pms, fenster_ende=None):
         th_sum = 0.0
         for th in ths:
             if th['zaehlt_ab'] and d < th['zaehlt_ab']: continue
+            if th['inaktiv']:
+                le = letzter_erbracht.get(th['id'])
+                if not le or iso > le: continue
             if not any((e.get('Von') is None or e['Von'] <= iso) and
                        (e.get('Bis') is None or e['Bis'] >= iso) for e in th['bz']):
                 continue
@@ -1975,6 +1998,21 @@ def compute_quartal(pm, q_start, q_end, today=None):
     th_ids = {m['id'] for m in bundle_th}
     th_by_id = {m['id']: m for m in bundle_th}
     th_start_iso = {m['id']: _th_earliest_beschaeftigung(m) for m in bundle_th}
+
+    # Deaktivierungs-Regel (Valentin 23.07.2026): MediFox-Deaktivierung ist die Grundlage.
+    # Da kein Deaktivierungs-DATUM existiert, gilt für inaktive THs der letzte erbrachte
+    # Termin als faktisches Arbeitsende — Stunden UND Umsatz enden dort (symmetrisch).
+    letzter_erbracht = {}
+    for st in bundle_standorte:
+        for t in _fetch_all('mf2pw17nwfzlkd2', where=f'(filiale,eq,{st})'):
+            if t.get('art') != 'normal' or t.get('is_blocker'): continue
+            if t.get('status') not in ('erbracht', 'erbracht_und_unterschrieben'): continue
+            ml = t.get('mitarbeiter') or []
+            if not ml: continue
+            mid = ml[0].get('Id')
+            d = str(t.get('beginn') or '')[:10]
+            if mid and d and (mid not in letzter_erbracht or d > letzter_erbracht[mid]):
+                letzter_erbracht[mid] = d
     # Anlauf-TH (Start < 3 Monate): 4W-arbeitszeit_h ist nur ein Teilfenster-Wert und seit dem
     # n8n-Bridging-Update nicht mehr 0 -> für die Wochenstunden den StundenProWoche-Fallback nutzen.
     bridge_cutoff = _anlauf_cutoff(today)
@@ -2019,6 +2057,16 @@ def compute_quartal(pm, q_start, q_end, today=None):
                         eff_end = bis_d
                 except Exception: pass
 
+        if m.get('is_active') is False:
+            le = letzter_erbracht.get(m['id'])
+            if not le:
+                th_eff_start[m['id']] = None
+                th_eff_end[m['id']] = None
+                continue
+            le_d = _date.fromisoformat(le)
+            if le_d < eff_end:
+                eff_end = le_d
+
         if eff_start > eff_end:
             th_eff_start[m['id']] = None
             th_eff_end[m['id']] = None
@@ -2032,17 +2080,20 @@ def compute_quartal(pm, q_start, q_end, today=None):
     if vstd_ber <= 0:
         return None
 
-    # IST aus Termine (Termin im TH-eff_days-Range).
-    # Fairness-Regel (Valentin, 22.07.2026): geplante Termine im LETZTEN Monat des
-    # Bewertungsfensters zählen × 0,8 — ~80 % davon werden im Zuge der Abrechnung noch
-    # auf erbracht gesetzt; PMs sollen nicht für vergessenes Status-Abhaken bestraft
-    # werden. Gleicher Filter-Perimeter wie erbrachte (inkl. 29-Tage-Regel); zukünftige
-    # Termine sind über das eff_end-Fenster ohnehin ausgeschlossen.
+    # ============================================================================
+    # BEWERTUNGS-IST = STUFE (1): NUR erbrachte Termine (finale Entscheidung
+    # Valentin 23.07.2026). Deckungsgleich mit dem MediFox-Standort-Export
+    # (validiert H1/2026: alle 5 Standorte ±1,4 %, gesamt +0,3 %).
+    # KEINE VO-Gebühren und KEIN 0,8×geplant im Gehalts-IST — diese Komponenten
+    # gehören ausschließlich in die Umsatz-REPORTS (Monat/Woche), NICHT in die
+    # Gehaltsmesslatte (sonst schleichende Schwellen-Aufweichung, siehe Memory).
+    # Gelöschte erbrachte zählen (Offboarding-Schutz); inaktive THs zählen bis zu
+    # ihrem letzten erbrachten Termin (Deaktivierungs-Regel, Stunden UND Umsatz).
+    # ============================================================================
     ist = 0.0
-    ist_geplant08 = 0.0
+    ist_geplant08 = 0.0   # bleibt 0 — Feld nur für Abwärtskompatibilität
     termine_count = 0
     termine_skip_29d = 0
-    letzter_monat = (effective_end.year, effective_end.month)
     for st in bundle_standorte:
         termine = _fetch_all('mf2pw17nwfzlkd2', where=f'(filiale,eq,{st})')
         for t in termine:
@@ -2053,18 +2104,12 @@ def compute_quartal(pm, q_start, q_end, today=None):
             # Gelöschte geplante bleiben draußen (= echte Absagen).
             status = t.get('status')
             ist_erbracht = status in ('erbracht', 'erbracht_und_unterschrieben')
-            if t.get('deleted_at') and not ist_erbracht: continue
+            if not ist_erbracht: continue   # Stufe (1): ausschließlich erbrachte
             if t.get('art') != 'normal': continue
             if t.get('is_blocker') or t.get('is_passive_leistung'): continue
             try:
                 b = _date.fromisoformat(t['beginn'][:10])
             except Exception: continue
-            if ist_erbracht:
-                gewicht = 1.0
-            elif status == 'geplant' and (b.year, b.month) == letzter_monat:
-                gewicht = 0.8
-            else:
-                continue
             ma_list = t.get('mitarbeiter') or []
             if not ma_list: continue
             mid = ma_list[0].get('Id')
@@ -2075,41 +2120,13 @@ def compute_quartal(pm, q_start, q_end, today=None):
                 termine_skip_29d += 1
                 continue
             if b > ee: continue
-            u = gewicht * termin_umsatz(t)
-            ist += u
-            if gewicht < 1.0:
-                ist_geplant08 += u
-            else:
-                termine_count += 1
+            ist += termin_umsatz(t)
+            termine_count += 1
 
-    # VO-Gebühren: 10 € Blattgebühr je VO + 98,59 € je Blanko-VO, zugeordnet dem
-    # Quartal des LETZTEN VO-Termins (über alle Status, wie Monatsumsatz-Report V3).
-    # Kein TH-Fenster-Filter — Gebühren sind VO-Ebene, nicht Termin-Ebene.
-    vo_last = {}
-    for st in bundle_standorte:
-        for t in _fetch_all('mf2pw17nwfzlkd2', where=f'(filiale,eq,{st})'):
-            if t.get('deleted_at') and t.get('status') not in ('erbracht', 'erbracht_und_unterschrieben'):
-                continue
-            if t.get('art') != 'normal' or t.get('is_blocker'):
-                continue
-            vo = str(t.get('verordnung_id') or '')
-            if not vo: continue
-            try:
-                b = _date.fromisoformat(t['beginn'][:10])
-            except Exception:
-                continue
-            cur = vo_last.get(vo)
-            if not cur or b >= cur['datum']:
-                vo_last[vo] = {'datum': b, 'blanko': (cur['blanko'] if cur else False) or bool(t.get('is_blanko'))}
-            elif t.get('is_blanko'):
-                cur['blanko'] = True
+    # VO-Gebühren sind seit 23.07.2026 NICHT mehr Teil des Bewertungs-IST (Stufe 1) —
+    # sie zählen nur in den Umsatz-Reports (Monatsreport Variante C). Feld bleibt für
+    # Abwärtskompatibilität/like-for-like-Diff erhalten.
     vo_gebuehren = 0.0
-    for vo in vo_last.values():
-        if q_start <= vo['datum'] <= effective_end:
-            vo_gebuehren += VO_BLATTGEBUEHR
-            if vo['blanko']:
-                vo_gebuehren += BLANKO_PAUSCHALE * satz_faktor(vo['datum'].isoformat())
-    ist += vo_gebuehren
 
     # Abw_ber: individuell pro Wochentag, eff_days-Range pro TH
     EXCLUDED_ARTS = {'krank', 'krankheit_kind', 'angefragt'}
@@ -3157,7 +3174,15 @@ def run_q_end_routine(wb, q_label):
             diff = ist_vgl - mf
             ws_qb.cell(row=row, column=17, value=round(diff))
             diff_pct = (diff / mf) * 100 if mf else 0
-            status = '✓ OK' if abs(diff_pct) < 2 else f'⚠️ Diff {diff_pct:+.1f} %'
+            # MediFox-Spalte = echter Standort-Export (erbrachte Termine). Modell-IST
+            # (Stufe 1) kann durch 29-Tage-Regel/Deaktivierungs-Abzug DARUNTER liegen —
+            # das ist erwartbar, kein Fehler. Nur Modell ÜBER MediFox ist verdächtig.
+            if diff_pct > 2:
+                status = f'⚠️ Diff {diff_pct:+.1f} % (Modell ÜBER MediFox — prüfen!)'
+            elif diff_pct < -2:
+                status = f'✓ plausibel ({diff_pct:+.1f} % — 29-Tage-/Deaktivierungs-Abzug)'
+            else:
+                status = '✓ OK'
         elif zufr is None:
             status = '⏳ Zufriedenheit fehlt'
         else:
