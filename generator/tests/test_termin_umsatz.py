@@ -136,11 +136,25 @@ def test_schwellen_ab_juli_indexiert():
     assert neu[1]['zulage'] == 0.11
 
 
-def test_einzelbehandlung_inkl_integrationsberatung_ist_behandlung():
-    """„Einzelbehandlung inkl. Beratung zur Integration" = Behandlung (ZI), NICHT 152,32-Festpreis"""
-    t = make_termin(45, bezeichnung='Motorisch-funktionelle Behandlung: Einzelbehandlung inkl. Beratung zur Integration in das soziale Umfeld')
-    assert abs(termin_umsatz(t) - 4 * ZI_PREIS) < 0.01
+# === Pauschal-Leistungen: Integration 152,32 / Schiene 390 (Valentin 23.07.2026) ===
+
+def test_einzelbehandlung_bei_integrationsberatung_festpreis():
+    """Auch „…Einzelbehandlung bei Beratung zur Integration…" = 152,32-Festpreis, NICHT ZI"""
+    t = make_termin(45, bezeichnung='Motorisch-funktionelle Behandlung: Einzelbehandlung bei Beratung zur Integration in das soziale Umfeld')
+    assert abs(termin_umsatz(t) - 152.32) < 0.01
 
 def test_reine_integrationsberatung_festpreis():
     t = make_termin(60, bezeichnung='Integrationsberatung')
     assert abs(termin_umsatz(t) - 152.32) < 0.01
+
+def test_schiene_pauschale():
+    from generate import SCHIENEN_PAUSCHALE
+    t = make_termin(30, bezeichnung='Ergo. Schiene')
+    assert abs(termin_umsatz(t) - SCHIENEN_PAUSCHALE) < 0.01
+    t2 = make_termin(45, bezeichnung='Ergotherapeutische temporäre Schiene- ohne Anpassung')
+    assert abs(termin_umsatz(t2) - SCHIENEN_PAUSCHALE) < 0.01
+
+def test_nicht_erschienen_ist_keine_schiene():
+    """'nicht erschienen' enthält den Substring 'schiene' — darf NICHT 390 € bekommen"""
+    t = make_termin(45, bezeichnung='Ergotherapie: nicht erschienen (AR)')
+    assert abs(termin_umsatz(t) - 4 * ZI_PREIS) < 0.01

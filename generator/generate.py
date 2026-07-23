@@ -18,11 +18,16 @@ OUT_DIR = os.environ.get('OUT_DIR') or os.path.expanduser('~/Code/Claude/Projekt
 # Einheitspreis pro Zeitintervall (15 min): jede Behandlung wird mit Kalenderdauer/15
 # PLUS 1 ZI Vor-/Nachbereitung abgerechnet. Reproduziert die GKV-Staffel exakt:
 # 30 min = 3 ZI = 56,93 · 45 min = 4 ZI = 75,91 · 60 min = 5 ZI = 94,89.
-# Ausnahmen: thermische Anwendung/KT/WT immer 8,51 €; Hausbesuchspauschale +27,56 (nach Faktor-Logik: NICHT ×Faktor).
+# Ausnahmen: thermische Anwendung/KT/WT immer 8,51 €; Schiene 390 €; Integration 152,32 €;
+# Hausbesuchspauschale +27,56 (nach Faktor-Logik: NICHT ×Faktor).
 # PKV (verordnungstyp 2) ×2,0 · Selbstzahler (3) ×1,7 — empirisch kalibriert (Monatsumsatz-Report V3).
 # Wirkt auf IST (termin_umsatz) und den Hebel-Faktor (1 %-Pkt PKV ≈ (PKV_FAKTOR-1)*100 % Umsatz).
 ZI_PREIS = 18.98
 THERMISCH_PREIS = 8.51
+# Pauschal-Leistungen (Valentin 23.07.2026): Schienenversorgung fix 390 €, Integrations-
+# beratung fix 152,32 € — beide NIE über die ZI-Formel, analog thermische Anwendung.
+SCHIENEN_PAUSCHALE = 390.00
+INTEGRATION_PAUSCHALE = 152.32
 PKV_FAKTOR = 2.0
 SZ_FAKTOR = 1.7
 HB_PAUSCHALE = 27.56
@@ -1805,9 +1810,13 @@ def _basis_preis(t, dauer):
         if 'sensomot' in bez: return 26.57
         if 'hlt' in bez or 'hirnleistung' in bez: return 26.57
         return 19.93
-    # „…Einzelbehandlung inkl. Beratung zur Integration…" ist eine BEHANDLUNG (ZI-Formel),
-    # nur die eigenständige „Integrationsberatung" ist der 152,32-Festpreis (Fix 23.07.2026)
-    if ('integrationsberatung' in bez or 'beratung zur integration' in bez) and 'behandlung' not in bez: return 152.32
+    # Integration IMMER als 152,32-Festpreis — auch „…Einzelbehandlung bei Beratung zur
+    # Integration…" (Valentin 23.07.2026: Pauschal-Leistung wie thermisch/Schiene, nicht ZI)
+    if 'integrationsberatung' in bez or 'beratung zur integration' in bez: return INTEGRATION_PAUSCHALE
+    # Schienenversorgung pauschal 390 € (Valentin 23.07.2026). Nur echte Leistungs-Termine:
+    # „Ergo. Schiene" / „Ergotherapeutische (temporäre) Schiene" — 'ergo' ist Pflicht-Marker,
+    # sonst matchen „nicht erschienen" (enthält 'schiene'!) und interne Planungs-Termine.
+    if 'schiene' in bez and 'ergo' in bez and 'erschienen' not in bez: return SCHIENEN_PAUSCHALE
     if 'funktionsanalyse' in bez or 'analyse ergotherapeutischer' in bez: return 41.46
     if 'übermittlung' in bez or 'bericht an' in bez: return 1.20
     # Behandlung (alle Therapiearten): ZI-Systematik — Dauer/15 Behandlungs-ZI + 1 VNB-ZI,
