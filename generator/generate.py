@@ -2114,6 +2114,31 @@ def _ist_anlauf_th(m, cutoff):
     except Exception:
         return False
 
+def _vertragsstunden_pro_woche(m, datum):
+    """Vertragliche Wochenstunden (Feld StundenProWoche) der am `datum` gültigen Arbeitszeit-
+    gruppe. Gruppen-Gültigkeit über GueltigAb/GueltigBis; bei mehreren gültigen Gruppen zählt
+    die mit dem jüngsten GueltigAb. 0.0 wenn keine Gruppe gültig ist (z. B. vor Vertragsbeginn).
+
+    Basis des Stundennenners seit 17.08.2026 (Valentin: „Vertragsstunden als Grundlage") — ersetzt
+    auslastung_4w.arbeitszeit_h/4. Der Snapshot war ein 30-Tage-Fenster (20–22 Werktage) durch 4
+    geteilt: je nach Wochentag des jüngsten Snapshots 0–10 % über den Vertragsstunden, mit 35 Tagen
+    Schreibverzug und deshalb nicht reproduzierbar (Q2 wurde am 23.07. mit Snapshots vom 18.06.
+    gerechnet). Die Q1-Bewertung, auf die die Schwellen kalibriert sind, war vertragsbasiert.
+    """
+    iso = datum.isoformat() if hasattr(datum, 'isoformat') else str(datum)[:10]
+    best = None
+    for g in (m.get('arbeitszeit_gruppen') or []):
+        g_von = str(g.get('GueltigAb') or '')[:10]; g_bis = str(g.get('GueltigBis') or '')[:10]
+        if g_von and g_von > iso: continue
+        if g_bis and g_bis < iso: continue
+        if best is None or g_von > str(best.get('GueltigAb') or '')[:10]:
+            best = g
+    if not best: return 0.0
+    try:
+        return float(best.get('StundenProWoche') or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
 def _th_stunden_am_werktag(m, datum):
     """Echte Arbeitsstunden des TH am gegebenen Werktag aus arbeitszeit_gruppen[].Arbeitszeiten[].
     Wochentag-Codes als Bitmask: Mo=1, Di=2, Mi=4, Do=8, Fr=16.
@@ -2209,33 +2234,20 @@ def compute_quartal(pm, q_start, q_end, today=None):
             d = str(t.get('beginn') or '')[:10]
             if mid and d and (mid not in letzter_erbracht or d > letzter_erbracht[mid]):
                 letzter_erbracht[mid] = d
-    # Anlauf-TH (Start < 3 Monate): 4W-arbeitszeit_h ist nur ein Teilfenster-Wert und seit dem
-    # n8n-Bridging-Update nicht mehr 0 -> für die Wochenstunden den StundenProWoche-Fallback nutzen.
-    bridge_cutoff = _anlauf_cutoff(today)
-
-    # Wochenstunden pro TH: primär auslastung_4w.arbeitszeit_h/4, Fallback StundenProWoche
-    ausl = _fetch_all('m29vw64nhicfco2')
-    latest_per_th = {}
-    for r in ausl:
-        mid = r.get('mitarbeiter_id')
-        if mid not in th_ids: continue
-        d = r.get('datum', '')
-        if mid not in latest_per_th or d > latest_per_th[mid].get('datum', ''):
-            latest_per_th[mid] = r
-
-    # eff_days und Vstd pro TH
+    # ============================================================================
+    # NENNER = VERTRAGSSTUNDEN (Valentin 17.08.2026): je Werktag (Mo–Fr) im eff-Fenster
+    # 1/5 der Wochenstunden aus dem Feld StundenProWoche der am Tag gültigen Arbeitszeit-
+    # gruppe. Brutto, unabhängig von Abwesenheiten (die werden unten in Slot-Stunden
+    # abgezogen). Kein auslastung_4w-Snapshot mehr (30-Tage-Fenster/4 = 0–10 % zu hoch,
+    # wochentags- und zeitpunktabhängig, 35 Tage Schreibverzug). Über volle Wochen ist
+    # StundenProWoche/5 je Werktag identisch mit Wochenstunden × Wochen; für Teilfenster
+    # (Q-bisher bis Freitag) zählen nur Werktage, kein Wochenend-Anteil.
+    # ============================================================================
     bundle_h_pro_woche = 0.0
     vstd_ber = 0.0
     th_eff_start = {}   # für IST/Abw/Feiertage-Filter
     th_eff_end = {}
     for m in bundle_th:
-        snap = latest_per_th.get(m['id'])
-        h_woche = ((snap.get('arbeitszeit_h', 0) or 0) / 4) if (snap and not _ist_anlauf_th(m, bridge_cutoff)) else 0
-        if h_woche <= 0:
-            g = (m.get('arbeitszeit_gruppen') or [{}])[0]
-            h_woche = float(g.get('StundenProWoche', 0) or 0)
-        bundle_h_pro_woche += h_woche
-
         eff_start = q_start
         start_iso = th_start_iso.get(m['id'])
         if start_iso:
@@ -2270,8 +2282,12 @@ def compute_quartal(pm, q_start, q_end, today=None):
 
         th_eff_start[m['id']] = eff_start
         th_eff_end[m['id']] = eff_end
-        eff_days = (eff_end - eff_start).days + 1
-        vstd_ber += h_woche * eff_days / 7
+        day = eff_start
+        while day <= eff_end:
+            if day.weekday() < 5:
+                vstd_ber += _vertragsstunden_pro_woche(m, day) / 5
+            day += _td(days=1)
+        bundle_h_pro_woche += _vertragsstunden_pro_woche(m, eff_end)
 
     if vstd_ber <= 0:
         return None

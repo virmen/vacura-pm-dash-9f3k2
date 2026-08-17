@@ -98,3 +98,21 @@ def test_alle_5_werktage():
     assert _th_stunden_am_werktag(th, date(2026, 4, 8))  == 3   # Mi
     assert _th_stunden_am_werktag(th, date(2026, 4, 9))  == 6   # Do
     assert _th_stunden_am_werktag(th, date(2026, 4, 10)) == 5   # Fr
+
+
+# === Vertragsstunden-Nenner (17.08.2026): StundenProWoche der am Tag gültigen Gruppe ===
+
+def test_vertragsstunden_pro_woche_gueltigkeit():
+    from datetime import date
+    from generate import _vertragsstunden_pro_woche
+    m = {'arbeitszeit_gruppen': [
+        {'StundenProWoche': 16,    'GueltigAb': '2026-07-14', 'GueltigBis': None},
+        {'StundenProWoche': 16.75, 'GueltigAb': '2026-02-02', 'GueltigBis': '2026-07-13'},
+        {'StundenProWoche': 41,    'GueltigAb': '2025-02-13', 'GueltigBis': '2026-02-01'},
+    ]}
+    assert _vertragsstunden_pro_woche(m, date(2026, 1, 15)) == 41
+    assert _vertragsstunden_pro_woche(m, date(2026, 2, 2)) == 16.75
+    assert _vertragsstunden_pro_woche(m, date(2026, 7, 13)) == 16.75
+    assert _vertragsstunden_pro_woche(m, date(2026, 7, 14)) == 16
+    assert _vertragsstunden_pro_woche(m, date(2024, 1, 1)) == 0.0   # vor Vertragsbeginn
+    assert _vertragsstunden_pro_woche({'arbeitszeit_gruppen': []}, date(2026, 1, 1)) == 0.0

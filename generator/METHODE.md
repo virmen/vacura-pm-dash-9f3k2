@@ -87,11 +87,23 @@ eff_days  = (eff_end − eff_start).days + 1   (oder 0 wenn eff_start > eff_end)
 
 ```python
 for TH in Bundle:
-    wochenstunden_th = auslastung_4w.arbeitszeit_h / 4   # 4-Wo-Schnitt, gewichtet
-    if wochenstunden_th == 0:
-        wochenstunden_th = mitarbeiter.arbeitszeit_gruppen[0].StundenProWoche   # Fallback
-    vstd_ber += wochenstunden_th × eff_days / 7
+    for Tag in eff_start..eff_end (nur Mo–Fr):
+        vstd_ber += StundenProWoche(am Tag gültige arbeitszeit_gruppe) / 5
 ```
+
+**Seit 17.08.2026 (Valentin: „Vertragsstunden als Grundlage"):** Basis ist das Vertragsfeld
+`StundenProWoche` der am jeweiligen Tag gültigen Arbeitszeitgruppe (GueltigAb/GueltigBis),
+brutto und unabhängig von Abwesenheiten. Bis 17.08. kam der Wert aus `auslastung_4w.arbeitszeit_h/4`
+(jüngster Snapshot je TH). Das war fehlerhaft: `arbeitszeit_h` ist die Slot-Summe der letzten
+**30 Kalendertage** (20–22 Werktage) abzüglich Feiertage; durch 4 geteilt liegt der Wert je nach
+Wochentag des Snapshots 0–10 % über den Vertragsstunden, und der Auslastungs-Workflow schreibt
+Snapshots erst 35 Tage später (die Q2-Bewertung am 23.07. rechnete mit Snapshots vom 18.06.).
+Die Q1-Bewertung, auf die die Stufen-Schwellen kalibriert wurden, war vertragsbasiert (Excel-VStd
+Laura 4.686 h ≈ StundenProWoche 4.659 h; Snapshot-Variante wäre 5.067 h). Die Schwellen bleiben
+deshalb unverändert. Über volle Wochen ist StundenProWoche/5 je Werktag identisch mit
+Wochenstunden × Wochen; für Teilfenster zählen nur Werktage (kein Wochenend-Anteil).
+Datenpflege: Slot-Summe und StundenProWoche sollen je Gruppe übereinstimmen (Stand 17.08.: nur
+Johannes Tetzner 33 vs. 30).
 
 #### 3.2.2 Abw_ber (Abwesenheiten)
 
