@@ -118,3 +118,31 @@ def test_stufen_aus_excel_geladen(excel_wb):
     assert STUFEN[5]['eur60'] == 89.48
     assert STUFEN[0]['zufr'] == 5.0
     assert STUFEN[5]['zufr'] == 8.5
+
+
+# === Probezeit-Ende innerhalb des Quartals (Regel 17.08.2026) ===
+
+def test_q2_luise_max_nach_probezeit_stichtag(excel_wb, pms_config):
+    """Q2-Bewertung fiel in die Probezeit (bis 31.07.2026). Stichtag 01.07.: Probezeit,
+    Stufe 1, keine Bundle-Zulage. Stichtag 17.08.: reguläres Gehalt ab 01.08. — Stufe 2
+    (rechn 2, ±1 ab Stufe 1), Bundle-Zulage > 0 (bzw. Fallback-Pfad ohne NocoDB)."""
+    from datetime import date
+    from generate import compute_pm
+    for name in ('Luise', 'Max'):
+        pm_pz = compute_pm(excel_wb, pms_config[name], q_label='Q2 2026', stichtag=date(2026, 7, 1))
+        assert pm_pz is not None
+        assert pm_pz['probezeit_aktiv'] is True and pm_pz['tats_stufe'] == 1 and pm_pz['bundle_zulage'] == 0
+        pm_reg = compute_pm(excel_wb, pms_config[name], q_label='Q2 2026', stichtag=date(2026, 8, 17))
+        assert pm_reg['probezeit_aktiv'] is False and pm_reg['nach_probezeit'] is True
+        assert pm_reg['probezeit_ende'] == date(2026, 7, 31)
+        assert pm_reg['gehalt_ab'] == date(2026, 8, 1)
+        assert pm_reg['rechn_stufe'] == 2 and pm_reg['tats_stufe'] == 2
+        assert pm_reg['monatsgehalt'] > pm_pz['monatsgehalt']
+
+def test_q2_laura_stichtag_ohne_effekt(excel_wb, pms_config):
+    """PMs ohne Probezeit: Stichtag ändert nichts an der Bewertung."""
+    from datetime import date
+    from generate import compute_pm
+    a = compute_pm(excel_wb, pms_config['Laura'], q_label='Q2 2026')
+    b = compute_pm(excel_wb, pms_config['Laura'], q_label='Q2 2026', stichtag=date(2026, 8, 17))
+    assert a['tats_stufe'] == b['tats_stufe'] == 2 and a['nach_probezeit'] is False and b['nach_probezeit'] is False

@@ -60,6 +60,8 @@ Die **Stufe (1–6)** wird quartalsweise ermittelt aus zwei UND-verknüpften Kri
 
 **UND-Logik:** Beide Schwellen müssen erreicht werden, sonst greift die nächst-niedrigere Stufe.
 
+**Schwellen-Indexierung (§ 4 Abs. 6 Anpassungsvereinbarung):** Die €/h-Schwellen oben sind die **Basiswerte (bis Q2 2026)**. Da die Vergütungssätze selbst steigen, werden die Schwellen bei jeder GKV-Satzerhöhung mit demselben Faktor indexiert — sonst würde eine Tariferhöhung automatisch Stufen schenken. Implementiert in `generate.py:stufen_eff(stichtag)`: für Bewertungsquartale ab 01.07.2026 gilt ×1,0411 → **63,68 / 69,27 / 75,63 / 80,46 / 87,57 / 93,16**. Zufr-Schwellen und Zulagen-Prozente bleiben unverändert. **Wartung:** Bei der nächsten Satzerhöhung in `stufen_eff` einen weiteren Datums-Ast ergänzen (kumulativ multiplizieren) — gleiche Stelle wie `ERHOEHUNG_AB`/`ERHOEHUNG_FAKTOR`.
+
 ### 3.2 €/h berechnen — Methode B (NocoDB durchgängig)
 
 Implementiert in `generate.py:compute_quartal(pm, q_start, q_end, today)`. Eine Funktion für Live (Q-bisher) und Q-End (komplettes Q).
@@ -250,7 +252,9 @@ Jahres-Gehalt = Basis-Gehalt × (1 + Stufen-Zulage %) × Wochenstunden / 40
 - **Bundle-Zulage = 0 €**
 - Es greift nur das Mindestgehalt (anteilig nach Wochenstunden)
 
-**Bestimmung:** Wenn `PM-Startdatum > Quartals-Ende − 6 Monate` → Probezeit aktiv.
+**Bestimmung:** Wenn `PM-Startdatum > Quartals-Ende − 6 Monate` → Probezeit aktiv (Q-Bewertung fällt in die Probezeit, `tats_stufe` = 1).
+
+**Probezeit-Ende innerhalb des Quartals (Regel seit 17.08.2026, Entscheidung Valentin):** Das Gehalt wird ab dem Tag nach dem Probezeit-Ende (`probezeit_ende()` = Startdatum + 6 Monate − 1 Tag) auf das reguläre Modell umgestellt, nicht erst ab dem Folgequartal. Es gilt dann die rechnerische Stufe des zuletzt bewerteten Quartals, gedeckelt um ±1 gegenüber der Probezeit-Stufe 1 (`stufe_nach_probezeit()`, also höchstens Stufe 2), plus die Bundle-Zulage aus der Tages-Kaskade. Beispiel Luise/Max: Start 01.02.2026, Probezeit bis 31.07.2026, Q2-Bewertung rechnerisch Stufe 2 → ab 01.08.2026 Stufe 2 mit Bundle-Zulage (Luise 3.978 €, Max 2.900 €/Monat statt 3.333 bzw. 2.500). Umsetzung: `compute_pm(..., stichtag=heute)` unterscheidet `probezeit_q` (Bewertungsquartal lag in der Probezeit) von `probezeit_aktiv` (Probezeit läuft am Stichtag noch); die Q-End-Routine nimmt für den ±1-Deckel des Folgequartals diese Stufe als „zuletzt geltende Stufe" (Vorquartalszeile mit Probezeit „Ja" und Probezeit-Ende vor Quartalsende → `start_stufe = stufe_nach_probezeit(rechn)`). Achtung: § 8 Abs. 4 der Anpassungsvereinbarung sagt noch „Sonderregel gilt für das gesamte Quartal des Probezeit-Endes fort" — die neue Regel ist für die PMs günstiger und gehört in den ausstehenden schriftlichen Nachtrag.
 
 ### 5.5 Mindestgehalt-Klausel
 
@@ -361,6 +365,7 @@ Die neuen Werte sind methodisch sauberer, aber die alten gelten als Bewertungsgr
 
 | Datum | Änderung | Wer |
 |---|---|---|
+| 2026-08-17 | Probezeit-Ende innerhalb des Quartals: Gehalt ab dem Folgetag des Probezeit-Endes auf reguläres Modell (Stufe aus dem zuletzt bewerteten Quartal, max. Stufe 2, plus Bundle-Zulage); Luise/Max ab 01.08.2026 — Details 5.4 | Valentin + Claude |
 | 2026-04-29 | Hebel-Block-Plausibilität (3-Stufen-Tags), PKV-Schwellen reduziert | Claude + Valentin |
 | 2026-05-15 | LI-Pfad entfernt, direkte €/h-Logik, Q-Live-Block eingeführt | Claude + Valentin |
 | 2026-05-15 | 29-Tage-Sperre einheitlich (vorher 14T Stufe / 1T Bundle-Zulage) | Valentin (v9-Vertrag) |
@@ -385,6 +390,42 @@ Das Bewertungs-IST (compute_quartal) ist **Stufe (1): ausschließlich erbrachte 
 (Status erbracht/erbracht_und_unterschrieben, alle Leistungsarten inkl. Funktionsanalysen,
 thermischer Anwendungen etc.), bepreist nach ZI-Systematik. Validierung H1/2026 gegen
 MediFox-Standort-Exporte: alle 5 Standorte ±1,4 %, gesamt +0,3 %.
+
+**Pauschal-Leistungen (Valentin 23.07.2026) — nie über die ZI-Formel:** thermische
+Anwendung/KT/WT 8,51 € · **Ergo-Schiene 390 €** · **Integration 152,32 €** (gilt AUCH für
+„…Einzelbehandlung bei Beratung zur Integration in das soziale Umfeld" — nicht nur für die
+eigenständige „Integrationsberatung") · Hausbesuchspauschale fix +27,56 € (nach Faktor).
+Schienen-Erkennung: `'schiene' + 'ergo'` in der Bezeichnung, `'erschienen'` ausgeschlossen
+(„nicht erschienen" enthält den Substring „schiene"!); interne Schienen-Termine
+(Planung/Bau, „Keine Schienen") sind art=intern und fallen über den Termine-Filter raus.
+
+**Schienen-Zurechnung (Valentin 13.08.2026):** Der Schienenbau ist auf Sophia von Winkler in
+Friedrichshain zentralisiert, im Kalender steht der Termin aber teils beim Therapeuten des
+Heimatstandorts. Jeder erbrachte Schienen-Termin zählt deshalb für Sophia und damit für das
+Bundle mit Friedrichshain — das Bundle lädt die Schienen der übrigen Standorte zu, alle anderen
+Bundles lassen ihre Schienen fallen (`SCHIENEN_STANDORT`/`_ist_schiene()` in generate.py, gleiche
+Regel im Node „Code Q-Start"). Praktisch trifft das nur Schienen aus Spandau und Mitte, weil
+Charlottenburg und Prenzlauer Berg ohnehin im selben Bundle wie Friedrichshain liegen: bisher
+zwei Fälle, 11/2024 Spandau und 03/2026 Mitte, je 390 €. Nicht umgebucht werden die
+Deaktivierungs-Regel (letzter erbrachter Termin je TH) und die PKV-Quote — die messen den
+Therapeuten und den Patientenmix des Standorts, nicht den Umsatz.
+
+**Weitere Regeln vom 23.07.2026 (überall identisch — generate.py + alle 4 n8n-Workflows):**
+
+*Thermisch-Faktor:* Thermische Anwendung kostet bei PKV **und** Selbstzahlern den
+zweifachen Satz (SZ sonst ×1,7).
+
+*Kaufmännische Rundung:* Alle Rundungen laufen über `kround()` (ROUND_HALF_UP, wie im
+Vertrag) — Pythons eingebautes `round()` ist Banker's Rounding (2,5 → 2) und darf nicht
+verwendet werden. JS `Math.round` ist bereits kaufmännisch.
+
+*Testkonten:* MediFox-Testdaten (z. B. Mitarbeiter „Testbär Testerei"/Friedrichshain mit
+24 Vertragsstunden, „Test User" in 4 Filialen; Test-Patienten) zählen NIRGENDS mit —
+weder im Umsatz noch in Stunden-Nenner, Bundle-Größe oder VZÄ. Es gibt kein is_test-Flag;
+Erkennung in `_ist_testkonto()`: ID-Blockliste `TEST_MITARBEITER_IDS` + Namensmuster
+(Vorname beginnt mit „test" ODER „test" als eigenständiges Wort). Echte Namen wie
+„Nicolo Testa" bleiben drin. Neue Testkonten: ID in die Blockliste eintragen (Code +
+n8n-Konstante `TEST_KONTO_IDS`), sofern das Namensmuster sie nicht ohnehin fängt.
 
 Bewusst NICHT im Gehalts-IST (nur in Umsatz-Reports): VO-Blattgebühren, Blanko-Pauschalen,
 0,8×geplante. Historie: Diese Komponenten waren am 22.07. kurzzeitig im Bewertungs-IST und

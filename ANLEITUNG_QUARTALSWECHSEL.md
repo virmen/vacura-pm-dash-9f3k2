@@ -116,7 +116,7 @@ Im Excel `Quartals-Bewertungen` für das jeweilige Q + PM die Zeile aufrufen:
 - Spalte 2: Wochenstunden
 - Spalte 3: PM-Std-Bundle (Summe aller PM-Stunden im Bundle, inkl. neuer PM)
 - Spalte 4: Mindestgehalt
-- Spalte 5: Startdatum (wichtig für Probezeit-Regel: erste 6 Monate Stufe 1)
+- Spalte 5: Startdatum (wichtig für Probezeit-Regel: erste 6 Monate Stufe 1 ohne Bundle-Zulage; ab dem Tag nach Probezeit-Ende gilt automatisch das reguläre Modell mit der Stufe aus dem zuletzt bewerteten Quartal, höchstens Stufe 2 — auch mitten im Quartal, kein manueller Schritt nötig)
 - Spalte 6: Bundle-Standorte (z. B. „Spandau, Mitte")
 - Spalte 7: Bundle-PMs (alle PM-Namen im Bundle, komma-getrennt)
 - **Spalten 8, 9, 10 leer lassen** — Farbe, Token, Aktiv werden automatisch gesetzt

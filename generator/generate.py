@@ -28,6 +28,18 @@ THERMISCH_PREIS = 8.51
 # beratung fix 152,32 € — beide NIE über die ZI-Formel, analog thermische Anwendung.
 SCHIENEN_PAUSCHALE = 390.00
 INTEGRATION_PAUSCHALE = 152.32
+# Schienen-Zurechnung (Valentin 13.08.2026): Der Schienenbau ist zentralisiert — jeder
+# erbrachte Schienen-Termin zählt praxisweit für Sophia von Winkler in Friedrichshain,
+# unabhängig davon, in wessen Kalender und in welcher Filiale er steht. Deckungsgleich mit
+# zurechnung() in controlling/scripts/umsatz_aus_termine.py.
+SCHIENEN_STANDORT = 'friedrichshain'
+SCHIENEN_THERAPEUT = 'sophia von winkler'
+
+
+def _ist_schiene(bez):
+    """Ergo-Schienen-Termin? 'ergo' ist Pflicht-Marker, sonst matcht „nicht erschienen"."""
+    b = str(bez or '').lower()
+    return 'schiene' in b and 'ergo' in b and 'erschienen' not in b
 PKV_FAKTOR = 2.0
 SZ_FAKTOR = 1.7
 HB_PAUSCHALE = 27.56
@@ -35,7 +47,8 @@ HB_PAUSCHALE = 27.56
 ERHOEHUNG_AB = '2026-07-01'
 ERHOEHUNG_FAKTOR = 1.0411
 # Je VO: 10 € Verordnungsblattgebühr; je Blanko-VO zusätzlich 98,59 € Versorgungspauschale
-# (Pos. 54503) — zugeordnet dem Quartal des letzten VO-Termins.
+# (Pos. 54503) — NUR im Monatsreport verbucht (Stufe-1-Gehaltsrechnungen ohne VO-Gebühren!),
+# zugeordnet dem Monat des ERSTEN VO-Termins (Valentin 24.07.2026; vorher letzter Termin).
 VO_BLATTGEBUEHR = 10.00
 BLANKO_PAUSCHALE = 98.59
 
@@ -559,7 +572,7 @@ def _find_pm_row(ws_daten, name):
             return r
     return None
 
-def compute_pm(wb_or_ws, pm, q_label='Q1 2026'):
+def compute_pm(wb_or_ws, pm, q_label='Q1 2026', stichtag=None):
     """Berechnet PM-Q-Bewertung aus Excel.
 
     Stammdaten kommen aus pm-Dict (geladen via load_pms_from_excel).
@@ -570,6 +583,10 @@ def compute_pm(wb_or_ws, pm, q_label='Q1 2026'):
         pm: dict mit 'name', 'wochenstd', 'pm_std_bundle', 'mindestgehalt', 'startdatum',
             'bundle_standorte', 'color', etc.
         q_label: Quartal-Label ('Q1 2026' = historisch-Default).
+        stichtag: Tag, für den das Gehalt gilt (Dashboard: heute). Default = erster Tag
+            nach dem Bewertungsquartal. Relevant für die Probezeit: endet sie vor dem
+            Stichtag, gilt ab dem Folgetag das reguläre Modell (Stufe aus dem bewerteten
+            Quartal, ±1-Deckel ab Stufe 1, Bundle-Zulage) — auch mitten im Quartal.
 
     Returns: dict mit pm-Daten + Q-Bewertung, oder None wenn Q-Werte fehlen.
     """
@@ -621,10 +638,22 @@ def compute_pm(wb_or_ws, pm, q_label='Q1 2026'):
     q_end_month = q_num_x * 3
     q_end_day = 31 if q_end_month in (3, 12) else 30
     q_eval_end = _ddate(year_x, q_end_month, q_end_day)
-    probezeit_aktiv = is_probezeit(startdatum, q_eval_end)
+    # probezeit_q: Bewertungsquartal endete noch in der Probezeit (Stufe im Quartal = 1).
+    # probezeit_aktiv: Probezeit läuft AM STICHTAG noch. Liegt der Stichtag hinter dem
+    # Probezeit-Ende, gilt ab dem Folgetag das reguläre Modell (Valentin 17.08.2026) —
+    # z.B. Luise/Max: Probezeit bis 31.07.2026, Gehalt ab 01.08.2026 nach Q2-Bewertung.
+    probezeit_q = is_probezeit(startdatum, q_eval_end)
+    pz_ende = probezeit_ende(startdatum) if probezeit_q else None
+    from datetime import timedelta as _tdelta
+    if stichtag is None:
+        stichtag = q_eval_end + _tdelta(days=1)
+    stichtag = _als_datum(stichtag) or stichtag
+    probezeit_aktiv = bool(probezeit_q and (pz_ende is None or stichtag <= pz_ende))
+    nach_probezeit = bool(probezeit_q and not probezeit_aktiv)
+    gehalt_ab = (pz_ende + _tdelta(days=1)) if nach_probezeit else (q_eval_end + _tdelta(days=1))
 
     # Probezeit-PMs: kein Q-IST/Vstd nötig — gehen automatisch auf Stufe 1, Mindestgehalt-Pfad
-    if probezeit_aktiv:
+    if probezeit_aktiv or (nach_probezeit and not all([vstd_ber, abw_ber, ist])):
         # Synthetische Werte, damit Render-Logik nicht crasht
         vstd_ber = vstd_ber or 1
         abw_ber  = abw_ber  or 0
@@ -672,6 +701,9 @@ def compute_pm(wb_or_ws, pm, q_label='Q1 2026'):
         tats = max(start_stufe - 1, 1)
     else:
         tats = rechn
+    if nach_probezeit:
+        # Ausgangsstufe ist die Probezeit-Stufe 1 (§ 8 Abs. 3a), nicht die Vorquartalszeile
+        tats = stufe_nach_probezeit(rechn, 1)
     
     # TH-Äqui für Bundle-Zulage (Stichtagswert — keine 29-Tage-Sperre, siehe Memory).
     # Brutto-Vertragsstunden HEUTE aus NocoDB (v1-Methode, METHODE.md 5.2): die
@@ -739,6 +771,11 @@ def compute_pm(wb_or_ws, pm, q_label='Q1 2026'):
         'bundle_standorte': pm['bundle_standorte'],
         'bundle_pms': pm['bundle_pms'],
         'probezeit_aktiv': probezeit_aktiv,
+        'probezeit_q': probezeit_q,             # Bewertungsquartal lag noch in der Probezeit
+        'probezeit_ende': pz_ende,              # letzter Probezeit-Tag (nur wenn probezeit_q)
+        'nach_probezeit': nach_probezeit,       # Probezeit seit dem Stichtag beendet → reguläres Gehalt
+        'gehalt_ab': gehalt_ab,                 # ab wann dieses Gehalt gilt
+        'stichtag': stichtag,
         'stufen_eff': stufen_q,   # für Anzeige/Gap: Schwellen des Bewertungsquartals
     }
 
@@ -1860,7 +1897,7 @@ def _basis_preis(t, dauer):
     # Schienenversorgung pauschal 390 € (Valentin 23.07.2026). Nur echte Leistungs-Termine:
     # „Ergo. Schiene" / „Ergotherapeutische (temporäre) Schiene" — 'ergo' ist Pflicht-Marker,
     # sonst matchen „nicht erschienen" (enthält 'schiene'!) und interne Planungs-Termine.
-    if 'schiene' in bez and 'ergo' in bez and 'erschienen' not in bez: return SCHIENEN_PAUSCHALE
+    if _ist_schiene(bez): return SCHIENEN_PAUSCHALE
     if 'funktionsanalyse' in bez or 'analyse ergotherapeutischer' in bez: return 41.46
     if 'übermittlung' in bez or 'bericht an' in bez: return 1.20
     # Behandlung (alle Therapiearten): ZI-Systematik — Dauer/15 Behandlungs-ZI + 1 VNB-ZI,
@@ -1930,6 +1967,30 @@ def is_probezeit(startdatum, q_eval_end):
         return monatsdiff < 6
     except Exception:
         return False
+
+
+def probezeit_ende(startdatum):
+    """Letzter Tag der 6-monatigen Probezeit (§ 8 Abs. 3): Startdatum + 6 Monate − 1 Tag.
+    01.02.2026 → 31.07.2026; 15.02.2026 → 14.08.2026. None ohne Startdatum."""
+    from datetime import date as _date, timedelta as _td
+    sd = _als_datum(startdatum)
+    if not sd: return None
+    m = sd.month + 6; y = sd.year + (m - 1) // 12; m = (m - 1) % 12 + 1
+    try:
+        return _date(y, m, sd.day) - _td(days=1)
+    except ValueError:            # z.B. 31.08. + 6 M → 28./29.02.
+        return _date(y, m + 1, 1) - _td(days=1) if m < 12 else _date(y, 12, 31)
+
+
+def stufe_nach_probezeit(rechn_stufe, start_stufe=1):
+    """Stufe, die nach dem Probezeit-Ende gilt (Valentin 17.08.2026: das Gehalt wird auch
+    innerhalb des Quartals angepasst, sobald die Probezeit endet — nicht erst ab dem
+    Folgequartal, wie § 8 Abs. 4 der Anpassungsvereinbarung es formuliert):
+    rechnerische Stufe des zuletzt bewerteten Quartals, gedeckelt um ±1 gegenüber der
+    Probezeit-Stufe 1 (§ 4 Abs. 3). Bei rechn 0 (keine Schwelle erreicht) bleibt Stufe 1."""
+    r = int(rechn_stufe or 0)
+    if r <= 0: return 1
+    return max(1, min(r, min(6, start_stufe + MAX_STUFEN_SPRUNG)))
 
 
 def _ist_bundle_therapeut(m):
@@ -2155,35 +2216,61 @@ def compute_quartal(pm, q_start, q_end, today=None):
     ist_geplant08 = 0.0   # bleibt 0 — Feld nur für Abwärtskompatibilität
     termine_count = 0
     termine_skip_29d = 0
+    # Schienen-Pool (Valentin 13.08.2026): Der Schienenbau ist auf Sophia von Winkler in
+    # Friedrichshain zentralisiert, im Kalender steht der Termin aber teils beim Therapeuten
+    # des Heimatstandorts. Jeder erbrachte Schienen-Termin zählt deshalb für Sophia und damit
+    # für das Bundle mit Friedrichshain: das Bundle lädt die Schienen der übrigen Standorte
+    # zu, alle anderen Bundles lassen ihre Schienen fallen. Gleiche Regel wie zurechnung() in
+    # controlling/scripts/umsatz_aus_termine.py und im SL-/Monatsreport.
+    # Der Schienen-Therapeut wird über die GESAMTE MA-Liste gesucht, nicht über bundle_th:
+    # findet man ihn nicht (Namensänderung, Austritt), bleibt der Pool aus und alles läuft
+    # wie vorher — Schienen dürfen nicht still aus der Bewertung fallen.
+    hat_schienen_standort = SCHIENEN_STANDORT in bundle_standorte
+    schienen_th_id = next((m['id'] for m in ma
+                           if f"{m.get('vorname', '')} {m.get('nachname', '')}".strip().lower()
+                           == SCHIENEN_THERAPEUT), None)
+
+    # (Termin, Mitarbeiter-ID für die TH-Prüfung) — Schienen laufen über den Schienen-Therapeuten
+    arbeitsliste = []
     for st in bundle_standorte:
-        termine = _fetch_all('mf2pw17nwfzlkd2', where=f'(filiale,eq,{st})')
-        for t in termine:
-            # Gelöschte Termine zählen, wenn sie als erbracht dokumentiert sind
-            # (Entscheidung 22.07.2026): MediFox löscht beim Offboarding auch
-            # VERGANGENE, abgerechnete Termine (Fall Siewert/Mitte, 451 Termine) —
-            # geleistete Arbeit darf dadurch nicht aus der Bewertung verschwinden.
-            # Gelöschte geplante bleiben draußen (= echte Absagen).
-            status = t.get('status')
-            ist_erbracht = status in ('erbracht', 'erbracht_und_unterschrieben')
-            if not ist_erbracht: continue   # Stufe (1): ausschließlich erbrachte
-            if t.get('art') != 'normal': continue
-            if t.get('is_blocker') or t.get('is_passive_leistung'): continue
-            if _ist_test_termin(t): continue
-            try:
-                b = _date.fromisoformat(t['beginn'][:10])
-            except Exception: continue
-            ma_list = t.get('mitarbeiter') or []
-            if not ma_list: continue
-            mid = ma_list[0].get('Id')
-            if mid not in th_ids: continue
-            es = th_eff_start.get(mid); ee = th_eff_end.get(mid)
-            if es is None or ee is None: continue
-            if b < es:
-                termine_skip_29d += 1
-                continue
-            if b > ee: continue
-            ist += termin_umsatz(t)
-            termine_count += 1
+        for t in _fetch_all('mf2pw17nwfzlkd2', where=f'(filiale,eq,{st})'):
+            ml = t.get('mitarbeiter') or []
+            mid = ml[0].get('Id') if ml else None
+            if schienen_th_id and _ist_schiene(t.get('bezeichnung')):
+                if not hat_schienen_standort: continue   # zählt im Fhain-Bundle, nicht hier
+                mid = schienen_th_id
+            arbeitsliste.append((t, mid))
+    if hat_schienen_standort and schienen_th_id:
+        for t in _fetch_all('mf2pw17nwfzlkd2', where='(bezeichnung,like,%chiene%)'):
+            if not _ist_schiene(t.get('bezeichnung')): continue
+            if str(t.get('filiale') or '').lower() in bundle_standorte: continue
+            arbeitsliste.append((t, schienen_th_id))
+
+    for t, mid in arbeitsliste:
+        # Gelöschte Termine zählen, wenn sie als erbracht dokumentiert sind
+        # (Entscheidung 22.07.2026): MediFox löscht beim Offboarding auch
+        # VERGANGENE, abgerechnete Termine (Fall Siewert/Mitte, 451 Termine) —
+        # geleistete Arbeit darf dadurch nicht aus der Bewertung verschwinden.
+        # Gelöschte geplante bleiben draußen (= echte Absagen).
+        status = t.get('status')
+        ist_erbracht = status in ('erbracht', 'erbracht_und_unterschrieben')
+        if not ist_erbracht: continue   # Stufe (1): ausschließlich erbrachte
+        if t.get('art') != 'normal': continue
+        if t.get('is_blocker') or t.get('is_passive_leistung'): continue
+        if _ist_test_termin(t): continue
+        try:
+            b = _date.fromisoformat(t['beginn'][:10])
+        except Exception: continue
+        if not mid: continue
+        if mid not in th_ids: continue
+        es = th_eff_start.get(mid); ee = th_eff_end.get(mid)
+        if es is None or ee is None: continue
+        if b < es:
+            termine_skip_29d += 1
+            continue
+        if b > ee: continue
+        ist += termin_umsatz(t)
+        termine_count += 1
 
     # VO-Gebühren sind seit 23.07.2026 NICHT mehr Teil des Bewertungs-IST (Stufe 1) —
     # sie zählen nur in den Umsatz-Reports (Monatsreport Variante C). Feld bleibt für
@@ -2465,17 +2552,32 @@ def render_html(pm):
     hero_stufe_text = f"Stufe {pm['tats_stufe']}"
     hero_probezeit_note = ''
     einordnung_probezeit_note = ''
+    hero_gehalt_ab = f'Monatsgehalt ab {q_aktuell}'
     if pm.get('probezeit_aktiv'):
         hero_stufe_text += ' · Probezeit'
+        pz_e = pm.get('probezeit_ende')
+        pz_txt = f' Deine Probezeit endet am {pz_e:%d.%m.%Y}; ab dem Folgetag gilt das reguläre Modell (Stufe aus dem zuletzt bewerteten Quartal plus Bundle-Zulage), nicht erst ab dem nächsten Quartal.' if pz_e else ' Ab dem Tag nach Probezeit-Ende gilt das reguläre Modell.'
         hero_probezeit_note = ('<div class="hero-meta" style="margin-top:10px;font-size:13px;opacity:0.92;">'
                                'Probezeit-Regel: In den ersten 6 Monaten gilt fest Stufe 1 — '
-                               'unabhängig von Umsatz und Zufriedenheit. Deine erste reguläre '
-                               'Bewertung folgt im Quartal nach Probezeit-Ende.</div>')
+                               'unabhängig von Umsatz und Zufriedenheit.' + pz_txt + '</div>')
         einordnung_probezeit_note = ('<p style="margin:0 0 14px;padding:10px 14px;background:rgba(13,89,90,0.08);'
                                      'border-radius:8px;font-size:13.5px;">Hinweis: Du bist noch in der '
                                      'Probezeit-Regel — deine Stufe ist deshalb fest auf 1 gesetzt, auch wenn '
-                                     'deine Werte unten bereits höhere Schwellen erreichen. Ab der ersten '
-                                     'regulären Bewertung zählen sie ganz normal.</p>')
+                                     'deine Werte unten bereits höhere Schwellen erreichen. Ab dem Tag nach '
+                                     'Probezeit-Ende zählen sie regulär.</p>')
+    elif pm.get('nach_probezeit'):
+        ga = pm.get('gehalt_ab'); pz_e = pm.get('probezeit_ende')
+        hero_gehalt_ab = f'Monatsgehalt ab {ga:%d.%m.%Y}' if ga else hero_gehalt_ab
+        hero_probezeit_note = ('<div class="hero-meta" style="margin-top:10px;font-size:13px;opacity:0.92;">'
+                               f'Deine Probezeit endete am {pz_e:%d.%m.%Y}. Seit dem {ga:%d.%m.%Y} gilt für dich das reguläre Modell: '
+                               f'Stufe aus der Bewertung {q_bewertung} (höchstens eine Stufe über der Probezeit-Stufe 1) plus Bundle-Zulage — '
+                               'die Anpassung erfolgt direkt nach Probezeit-Ende, nicht erst zum nächsten Quartal.</div>')
+        einordnung_probezeit_note = ('<p style="margin:0 0 14px;padding:10px 14px;background:rgba(13,89,90,0.08);'
+                                     f'border-radius:8px;font-size:13.5px;">Hinweis: Die Bewertung {q_bewertung} fiel noch in deine Probezeit. '
+                                     f'Seit dem {ga:%d.%m.%Y} zählen diese Werte regulär für deine Stufe. '
+                                     + (f'Pro Quartal ist maximal ein Stufenschritt möglich (Start: Probezeit-Stufe 1), deshalb Stufe {pm["tats_stufe"]}, '
+                                        f'obwohl deine Werte rechnerisch Stufe {pm["rechn_stufe"]} erreichen.' if pm.get('rechn_stufe', 0) > pm['tats_stufe']
+                                        else f'Daraus ergibt sich Stufe {pm["tats_stufe"]}.') + '</p>')
 
     # Breakdown — Segment-Anteile
     ziel_gehalt = max(pm['gehalt_formel'], pm['mindest_anteilig'])
@@ -2932,10 +3034,11 @@ def render_html(pm):
     for q in range(1, end_q + 1):
         q_label_card = f"Q{q} {year}"
         if q == q_eval:
+            ab_txt = f" ab {pm['gehalt_ab']:%d.%m.}" if pm.get('nach_probezeit') and pm.get('gehalt_ab') else ''
             timeline_cards.append(f'''<div class="timeline-item current">
         <div class="timeline-q">{q_label_card}</div>
         <div class="timeline-stufe">Stufe {pm['tats_stufe']}</div>
-        <div class="timeline-gehalt">{fmt_eur(pm['monatsgehalt'])} € / Monat</div>
+        <div class="timeline-gehalt">{fmt_eur(pm['monatsgehalt'])} € / Monat{ab_txt}</div>
       </div>''')
         elif q == q_now_num:
             timeline_cards.append(f'''<div class="timeline-item empty">
@@ -2973,7 +3076,7 @@ def render_html(pm):
     <div class="hero-card">
       <div class="hero-stufe">{hero_stufe_text}</div>
       <div class="hero-gehalt">{fmt_eur(pm['monatsgehalt'])} €</div>
-      <div class="hero-gehalt-unit">Monatsgehalt ab {q_aktuell}</div>
+      <div class="hero-gehalt-unit">{hero_gehalt_ab}</div>
       {hero_probezeit_note}
       <div class="hero-meta">
         <div class="hero-meta-item">
@@ -3189,6 +3292,15 @@ def run_q_end_routine(wb, q_label):
             prev_tats = ws_qb.cell(row=prev_row, column=15).value
             if isinstance(prev_tats, (int, float)):
                 pm_cfg['start_stufe'] = int(prev_tats)
+            # Probezeit endete im laufenden Quartal (Valentin 17.08.2026): dann galt seit dem
+            # Folgetag die Stufe aus dem Vorquartal (rechn, ±1 ab Stufe 1) — sie ist die
+            # „zuletzt geltende Stufe" für den ±1-Deckel, nicht die Probezeit-Stufe 1.
+            prev_pz = str(ws_qb.cell(row=prev_row, column=16).value or '')
+            pz_ende = probezeit_ende(pm_cfg.get('startdatum'))
+            if prev_pz.startswith('Ja') and pz_ende and pz_ende < q_end:
+                prev_rechn = ws_qb.cell(row=prev_row, column=14).value
+                if isinstance(prev_rechn, (int, float)):
+                    pm_cfg['start_stufe'] = stufe_nach_probezeit(int(prev_rechn), 1)
         result = compute_quartal(pm_cfg, q_start, q_end, today=q_end)
         if not result:
             print(f'  {pm_cfg["name"]}: compute_quartal lieferte None')
@@ -3227,7 +3339,12 @@ def run_q_end_routine(wb, q_label):
         ws_qb.cell(row=row, column=13, value=kround(result['eur60'], 2))
         ws_qb.cell(row=row, column=14, value=result['rechn_stufe'])
         ws_qb.cell(row=row, column=15, value=result['tats_stufe'])
-        ws_qb.cell(row=row, column=16, value='Ja' if result.get('probezeit_aktiv') else 'Nein')
+        if result.get('probezeit_aktiv'):
+            pz_e = probezeit_ende(pm_cfg.get('startdatum'))
+            pz_txt = f'Ja (bis {pz_e:%d.%m.%Y}, danach Stufe {stufe_nach_probezeit(result["rechn_stufe"], 1)})' if pz_e else 'Ja'
+        else:
+            pz_txt = 'Nein'
+        ws_qb.cell(row=row, column=16, value=pz_txt)
         # Diff zu MediFox
         mf = ws_qb.cell(row=row, column=6).value
         if isinstance(mf, (int, float)):
@@ -3271,7 +3388,12 @@ def render_uebersicht(items, q_label):
         name = cfg['name']
         token = TOKENS.get(name, '')
         datei = f'{name.lower()}-{token}.html'
-        vermerk = 'Probezeit' if d.get('probezeit_aktiv') else ''
+        if d.get('probezeit_aktiv'):
+            vermerk = 'Probezeit' + (f' bis {d["probezeit_ende"]:%d.%m.%Y}' if d.get('probezeit_ende') else '')
+        elif d.get('nach_probezeit'):
+            vermerk = f'regulär seit {d["gehalt_ab"]:%d.%m.%Y} (Probezeit-Ende)'
+        else:
+            vermerk = ''
         zeilen.append(f'''
         <tr>
           <td><b>{name}</b></td>
@@ -3391,7 +3513,7 @@ def _main():
     alle_pm = []
     for pm_cfg in PMS:
         print(f'  {pm_cfg["name"]}...')
-        pm_data = compute_pm(wb, pm_cfg, q_label=q_label_dash)
+        pm_data = compute_pm(wb, pm_cfg, q_label=q_label_dash, stichtag=_date_main.today())
         if not pm_data:
             print(f'    übersprungen (keine Daten)')
             continue
