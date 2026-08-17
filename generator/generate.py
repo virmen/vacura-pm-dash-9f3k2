@@ -464,6 +464,38 @@ def th_kumuliert(n_th):
         else: cum += 700
     return cum
 
+def gehalt_berechnen(wochenstd, mindestgehalt, bundle_zulage, stufe):
+    """Eine Formel für alle Pfade (§ 2 Abs. 1 + § 7): (40.000 + Bundle-Zulage) × (1 + Stufen-%)
+    × Wochenstd/40, mindestens das anteilige Mindestgehalt. Return dict mit basis, formel,
+    mindest_anteilig, jahr, monat, zulage_pct."""
+    basis = 40000 + (bundle_zulage or 0)
+    pct = STUFEN[max(1, min(6, int(stufe))) - 1]['zulage']
+    formel = kround(basis * (1 + pct) * (wochenstd / 40))
+    mind = kround((mindestgehalt or 0) * wochenstd / 40)
+    jahr = max(formel, mind)
+    return {'basis': basis, 'zulage_pct': pct, 'gehalt_formel': formel,
+            'mindest_anteilig': mind, 'jahresgehalt': jahr, 'monatsgehalt': kround(jahr / 12)}
+
+
+def probezeit_vorschau(pm, rechn_stufe, th_pm, gehalt_ab, teamstand=None, geschaetzt=False):
+    """Gehalt nach Probezeit-Ende für eine PM, die am Bewertungsstichtag noch in der Probezeit
+    ist (Valentin 17.08.2026: nach dem Quartalslauf klar ausweisen, was ab Probezeit-Ende gilt).
+    Stufe = stufe_nach_probezeit(rechn), Bundle-Zulage aus th_pm (Kaskade, Teamstand `teamstand`)."""
+    stufe = stufe_nach_probezeit(rechn_stufe, 1)
+    bz = th_kumuliert(int(th_pm or 0))
+    g = gehalt_berechnen(pm.get('wochenstd') or 0, pm.get('mindestgehalt') or 0, bz, stufe)
+    return {'gehalt_ab': gehalt_ab, 'tats_stufe': stufe, 'th_pm': int(th_pm or 0),
+            'bundle_zulage': bz, 'monatsgehalt': g['monatsgehalt'], 'jahresgehalt': g['jahresgehalt'],
+            'teamstand': teamstand, 'stufe_geschaetzt': bool(geschaetzt)}
+
+
+def _quartalsende(d):
+    """Letzter Tag des Quartals, in dem d liegt."""
+    from datetime import date as _date
+    qm = ((d.month - 1) // 3 + 1) * 3
+    return _date(d.year, qm, 31 if qm in (3, 12) else 30)
+
+
 _BUNDLE_VZAE_CACHE = {}
 
 def bundle_brutto_vzae(bundle_standorte, stichtag):
@@ -726,17 +758,25 @@ def compute_pm(wb_or_ws, pm, q_label='Q1 2026', stichtag=None):
 
     # Probezeit wurde oben schon ermittelt (mit korrektem q_eval_end aus q_label)
     # Gehalt
+    vorschau = None
     if probezeit_aktiv:
         tats = 1
         bundle_zulage = 0
+        # Vorschau auf das Gehalt ab Probezeit-Ende, sobald das Ende im Quartal des Stichtags
+        # liegt (dann ist dieses Bewertungsquartal die Grundlage der Stufe nach der Probezeit).
+        if pz_ende and pz_ende <= _quartalsende(stichtag):
+            daten_da = all([ws_qb.cell(row=qb_row, column=c).value for c in (8, 11, 12)]) and (ruecken or komm or enps)
+            # Endet die Probezeit genau mit dem laufenden Quartal, wird die Stufe danach aus
+            # DIESEM (noch nicht bewerteten) Quartal kommen — Vorschau dann nur Schätzung.
+            grundlage_offen = pz_ende >= _quartalsende(stichtag)
+            vorschau = probezeit_vorschau(pm, rechn, th_pm, pz_ende + _tdelta(days=1),
+                                          teamstand=_ddate.today(), geschaetzt=(not daten_da) or grundlage_offen)
+            vorschau['grundlage_offen'] = grundlage_offen
     else:
         bundle_zulage = th_kumuliert(th_pm)
-    basis = 40000 + bundle_zulage
-    stufe_zulage_pct = STUFEN[tats - 1]['zulage']
-    gehalt_formel = kround(basis * (1 + stufe_zulage_pct) * (wochenstd / 40))
-    min_gehalt_anteilig = kround(mindestgehalt * wochenstd / 40)
-    jahr = max(gehalt_formel, min_gehalt_anteilig)
-    monat = kround(jahr / 12)
+    g_ = gehalt_berechnen(wochenstd, mindestgehalt, bundle_zulage, tats)
+    basis = g_['basis']; stufe_zulage_pct = g_['zulage_pct']; gehalt_formel = g_['gehalt_formel']
+    min_gehalt_anteilig = g_['mindest_anteilig']; jahr = g_['jahresgehalt']; monat = g_['monatsgehalt']
     
     return {
         'name': pm['name'],
@@ -775,6 +815,7 @@ def compute_pm(wb_or_ws, pm, q_label='Q1 2026', stichtag=None):
         'probezeit_ende': pz_ende,              # letzter Probezeit-Tag (nur wenn probezeit_q)
         'nach_probezeit': nach_probezeit,       # Probezeit seit dem Stichtag beendet → reguläres Gehalt
         'gehalt_ab': gehalt_ab,                 # ab wann dieses Gehalt gilt
+        'probezeit_vorschau': vorschau,         # Gehalt ab Probezeit-Ende (nur wenn Ende im Stichtags-Quartal)
         'stichtag': stichtag,
         'stufen_eff': stufen_q,   # für Anzeige/Gap: Schwellen des Bewertungsquartals
     }
@@ -2565,6 +2606,16 @@ def render_html(pm):
         hero_stufe_text += ' · Probezeit'
         pz_e = pm.get('probezeit_ende')
         pz_txt = f' Deine Probezeit endet am {pz_e:%d.%m.%Y}; ab dem Folgetag gilt das reguläre Modell (Stufe aus dem zuletzt bewerteten Quartal plus Bundle-Zulage), nicht erst ab dem nächsten Quartal.' if pz_e else ' Ab dem Tag nach Probezeit-Ende gilt das reguläre Modell.'
+        vs = pm.get('probezeit_vorschau')
+        if vs:
+            if vs.get('grundlage_offen'):
+                stufe_txt = f'Stufe {vs["tats_stufe"]} (Schätzung nach {q_bewertung}; maßgeblich wird die Bewertung {q_aktuell})'
+            elif vs.get('stufe_geschaetzt'):
+                stufe_txt = f'Stufe {vs["tats_stufe"]} aus der Bewertung {q_bewertung} (Werte noch unvollständig, daher geschätzt)'
+            else:
+                stufe_txt = f'Stufe {vs["tats_stufe"]} aus der Bewertung {q_bewertung}'
+            pz_txt += (f' Ab {vs["gehalt_ab"]:%d.%m.%Y} voraussichtlich <b>{fmt_eur(vs["monatsgehalt"])} €</b> im Monat: '
+                       f'{stufe_txt} plus Bundle-Zulage für {vs["th_pm"]} Anteile nach heutigem Teamstand.')
         hero_probezeit_note = ('<div class="hero-meta" style="margin-top:10px;font-size:13px;opacity:0.92;">'
                                'Probezeit-Regel: In den ersten 6 Monaten gilt fest Stufe 1 — '
                                'unabhängig von Umsatz und Zufriedenheit.' + pz_txt + '</div>')
@@ -3349,7 +3400,27 @@ def run_q_end_routine(wb, q_label):
         ws_qb.cell(row=row, column=15, value=result['tats_stufe'])
         if result.get('probezeit_aktiv'):
             pz_e = probezeit_ende(pm_cfg.get('startdatum'))
-            pz_txt = f'Ja (bis {pz_e:%d.%m.%Y}, danach Stufe {stufe_nach_probezeit(result["rechn_stufe"], 1)})' if pz_e else 'Ja'
+            pz_txt = 'Ja'
+            if pz_e:
+                pz_txt = f'Ja (bis {pz_e:%d.%m.%Y})'
+                # Probezeit endet bis zum Ende des Folgequartals → dieses Quartal ist die Stufen-
+                # Grundlage nach der Probezeit: Gehalt ab Probezeit-Ende klar ausweisen (17.08.2026).
+                from datetime import date as _dtoday, timedelta as _tdl
+                if pz_e <= _quartalsende(q_end + _tdl(days=1)):
+                    heute = _dtoday.today()
+                    zger_v, _b, _k = bundle_zulage_std_taggenau(pm_cfg, PMS, fenster_ende=heute)
+                    if zger_v is not None:
+                        th_v = int(kround(zger_v / 30))
+                    else:
+                        th_v = int(kround((bundle_brutto_vzae(pm_cfg.get('bundle_standorte', ''), heute) or 0)
+                                          * float(pm_cfg.get('wochenstd') or 0) / float(pm_cfg.get('pm_std_bundle') or 1)))
+                    vs = probezeit_vorschau(pm_cfg, result['rechn_stufe'], th_v, pz_e + _tdl(days=1),
+                                            teamstand=heute, geschaetzt=pm_cfg.get('zufr') is None)
+                    pz_txt = (f'Ja (bis {pz_e:%d.%m.%Y}; ab {vs["gehalt_ab"]:%d.%m.%Y}: {fmt_eur(vs["monatsgehalt"])} €/Mon '
+                              f'= Stufe {vs["tats_stufe"]} + {vs["th_pm"]} Anteile, Teamstand {heute:%d.%m.%Y}'
+                              + (', Stufe geschätzt' if vs['stufe_geschaetzt'] else '') + ')')
+                    print(f'  ➜ {pm_cfg["name"]}: nach Probezeit-Ende {pz_e:%d.%m.%Y} ab {vs["gehalt_ab"]:%d.%m.%Y} '
+                          f'{fmt_eur(vs["monatsgehalt"])} €/Mon (Stufe {vs["tats_stufe"]}, {vs["th_pm"]} Anteile)')
         else:
             pz_txt = 'Nein'
         ws_qb.cell(row=row, column=16, value=pz_txt)
@@ -3398,6 +3469,10 @@ def render_uebersicht(items, q_label):
         datei = f'{name.lower()}-{token}.html'
         if d.get('probezeit_aktiv'):
             vermerk = 'Probezeit' + (f' bis {d["probezeit_ende"]:%d.%m.%Y}' if d.get('probezeit_ende') else '')
+            vs = d.get('probezeit_vorschau')
+            if vs:
+                vermerk += (f' → ab {vs["gehalt_ab"]:%d.%m.%Y}: <b>{fmt_eur(vs["monatsgehalt"])} €</b> '
+                            f'(Stufe {vs["tats_stufe"]}, {vs["th_pm"]} Anteile)')
         elif d.get('nach_probezeit'):
             vermerk = f'regulär seit {d["gehalt_ab"]:%d.%m.%Y} (Probezeit-Ende)'
         else:

@@ -111,10 +111,10 @@ Aus Konstante `BERLIN_FEIERTAGE` (alle gesetzlichen Berliner Feiertage). Pro Wer
 #### 3.2.4 IST (Bundle-Umsatz)
 
 Aus NocoDB-Tabelle `termine` mit folgenden Filtern (alle UND-verknüpft):
-- `deleted_at IS NULL`
+- `deleted_at` wird NICHT gefiltert: gelöschte erbrachte Termine zählen (Offboarding-Löschungen, 22.07.2026); gelöschte geplante fallen über den Status raus
 - `art = 'normal'` (= echter Patiententermin, keine internen Termine wie Leitungszeit oder Vor-/Nachbereitung)
 - `is_blocker = false`
-- `is_passive_leistung = false` (= keine WT/KT/thermische Anwendungen)
+- `is_passive_leistung` wird seit 17.08.2026 NICHT mehr ausgeschlossen (thermische Anwendungen/WT/KT zählen als Termin-Umsatz, 8,51 € × Faktor)
 - `status ∈ {'erbracht', 'erbracht_und_unterschrieben'}`
 - Termin-Datum im eff_days-Range der zuständigen TH (`mitarbeiter[0].Id`)
 
@@ -254,7 +254,7 @@ Jahres-Gehalt = Basis-Gehalt × (1 + Stufen-Zulage %) × Wochenstunden / 40
 
 **Bestimmung:** Wenn `PM-Startdatum > Quartals-Ende − 6 Monate` → Probezeit aktiv (Q-Bewertung fällt in die Probezeit, `tats_stufe` = 1).
 
-**Probezeit-Ende innerhalb des Quartals (Regel seit 17.08.2026, Entscheidung Valentin):** Das Gehalt wird ab dem Tag nach dem Probezeit-Ende (`probezeit_ende()` = Startdatum + 6 Monate − 1 Tag) auf das reguläre Modell umgestellt, nicht erst ab dem Folgequartal. Es gilt dann die rechnerische Stufe des zuletzt bewerteten Quartals, gedeckelt um ±1 gegenüber der Probezeit-Stufe 1 (`stufe_nach_probezeit()`, also höchstens Stufe 2), plus die Bundle-Zulage aus der Tages-Kaskade. Beispiel Luise/Max: Start 01.02.2026, Probezeit bis 31.07.2026, Q2-Bewertung rechnerisch Stufe 2 → ab 01.08.2026 Stufe 2 mit Bundle-Zulage (Luise 3.978 €, Max 2.900 €/Monat statt 3.333 bzw. 2.500). Umsetzung: `compute_pm(..., stichtag=heute)` unterscheidet `probezeit_q` (Bewertungsquartal lag in der Probezeit) von `probezeit_aktiv` (Probezeit läuft am Stichtag noch); die Q-End-Routine nimmt für den ±1-Deckel des Folgequartals diese Stufe als „zuletzt geltende Stufe" (Vorquartalszeile mit Probezeit „Ja" und Probezeit-Ende vor Quartalsende → `start_stufe = stufe_nach_probezeit(rechn)`). Achtung: § 8 Abs. 4 der Anpassungsvereinbarung sagt noch „Sonderregel gilt für das gesamte Quartal des Probezeit-Endes fort" — die neue Regel ist für die PMs günstiger und gehört in den ausstehenden schriftlichen Nachtrag.
+**Probezeit-Ende innerhalb des Quartals (Regel seit 17.08.2026, Entscheidung Valentin):** Das Gehalt wird ab dem Tag nach dem Probezeit-Ende (`probezeit_ende()` = Startdatum + 6 Monate − 1 Tag) auf das reguläre Modell umgestellt, nicht erst ab dem Folgequartal. Es gilt dann die rechnerische Stufe des zuletzt bewerteten Quartals, gedeckelt um ±1 gegenüber der Probezeit-Stufe 1 (`stufe_nach_probezeit()`, also höchstens Stufe 2), plus die Bundle-Zulage aus der Tages-Kaskade. Beispiel Luise/Max: Start 01.02.2026, Probezeit bis 31.07.2026, Q2-Bewertung rechnerisch Stufe 2 → ab 01.08.2026 Stufe 2 mit Bundle-Zulage (Luise 3.978 €, Max 2.900 €/Monat statt 3.333 bzw. 2.500). Umsetzung: `compute_pm(..., stichtag=heute)` unterscheidet `probezeit_q` (Bewertungsquartal lag in der Probezeit) von `probezeit_aktiv` (Probezeit läuft am Stichtag noch); die Q-End-Routine nimmt für den ±1-Deckel des Folgequartals diese Stufe als „zuletzt geltende Stufe" (Vorquartalszeile mit Probezeit „Ja" und Probezeit-Ende vor Quartalsende → `start_stufe = stufe_nach_probezeit(rechn)`). **Ausweis nach dem Quartalslauf (Valentin 17.08.2026):** Für PMs, deren Probezeit bis zum Ende des Folgequartals endet, schreibt die Q-End-Routine in die Spalte „Probezeit" der Quartals-Bewertungen das Gehalt ab Probezeit-Ende („Ja (bis 31.07.2026; ab 01.08.2026: 2.900 €/Mon = Stufe 2 + 6 Anteile, Teamstand …)"), das Dashboard zeigt es im Hero („Ab 01.08.2026 voraussichtlich 2.900 €"), die GF-Übersicht im Vermerk. Endet die Probezeit genau mit dem laufenden Quartal, ist die Stufe nur geschätzt (maßgeblich wird die Bewertung des laufenden Quartals). Rechenhelfer `gehalt_berechnen()` und `probezeit_vorschau()`. Achtung: § 8 Abs. 4 der Anpassungsvereinbarung sagt noch „Sonderregel gilt für das gesamte Quartal des Probezeit-Endes fort" — die neue Regel ist für die PMs günstiger und gehört in den ausstehenden schriftlichen Nachtrag.
 
 ### 5.5 Mindestgehalt-Klausel
 
@@ -387,8 +387,10 @@ Die neuen Werte sind methodisch sauberer, aber die alten gelten als Bewertungsgr
 ## Umsatzbegriff der Gehaltsbewertung (FINAL, 23.07.2026) — NICHT wieder anreichern!
 
 Das Bewertungs-IST (compute_quartal) ist **Stufe (1): ausschließlich erbrachte Termine**
-(Status erbracht/erbracht_und_unterschrieben, alle Leistungsarten inkl. Funktionsanalysen,
-thermischer Anwendungen etc.), bepreist nach ZI-Systematik. Validierung H1/2026 gegen
+(Status erbracht/erbracht_und_unterschrieben, alle Leistungsarten inkl. thermischer
+Anwendungen/passiver Leistungen; **Bedarfs-/Funktionsanalyse-Termine seit 17.08.2026 mit 0 €**,
+weil sie eine VO-Position sind, kein Termin-Umsatz — Valentin 17.08.2026, gleiche Regel im
+PM-Wochenreport `xD2Xp6nSiSuRUJZu`, Q-Start- und SL-Node), bepreist nach ZI-Systematik. Validierung H1/2026 gegen
 MediFox-Standort-Exporte: alle 5 Standorte ±1,4 %, gesamt +0,3 %.
 
 **Pauschal-Leistungen (Valentin 23.07.2026) — nie über die ZI-Formel:** thermische

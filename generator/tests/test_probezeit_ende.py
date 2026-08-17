@@ -28,3 +28,19 @@ def test_stufe_nach_probezeit_deckel():
     assert stufe_nach_probezeit(1) == 1
     assert stufe_nach_probezeit(0) == 1      # keine Schwelle erreicht → Stufe 1
     assert stufe_nach_probezeit(None) == 1
+
+
+def test_gehalt_berechnen_und_vorschau():
+    from generate import gehalt_berechnen, probezeit_vorschau
+    from datetime import date
+    # Max: 30 h, Mindestgehalt 40.000, 6 Anteile (1.800), Stufe 2 → 2.900 €/Mon
+    g = gehalt_berechnen(30, 40000, 1800, 2)
+    assert g['monatsgehalt'] == 2900 and g['jahresgehalt'] == 34799
+    # Stufe 1 mit Bundle-Zulage: 41.800 × 0,75 / 12 = 2.612,50 → kaufmännisch 2.613
+    assert gehalt_berechnen(30, 40000, 1800, 1)['monatsgehalt'] == 2613
+    # Mindestgehalt greift: Probezeit-Sockel 40 h ohne Zulage
+    assert gehalt_berechnen(40, 40000, 0, 1)['monatsgehalt'] == 3333
+    v = probezeit_vorschau({'wochenstd': 40, 'mindestgehalt': 40000}, 2, 9, date(2026, 8, 1))
+    assert v['tats_stufe'] == 2 and v['bundle_zulage'] == 3000 and v['monatsgehalt'] == 3978
+    v4 = probezeit_vorschau({'wochenstd': 40, 'mindestgehalt': 40000}, 4, 9, date(2026, 8, 1))
+    assert v4['tats_stufe'] == 2   # Deckel: höchstens eine Stufe über Probezeit-Stufe 1

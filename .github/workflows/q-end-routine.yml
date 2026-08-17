@@ -76,6 +76,7 @@ jobs:
               2. **Sanity (MediFox)** durchgehen — Diff < 2 %?
               3. **Live-Dashboards** prüfen: https://virmen.github.io/vacura-pm-dash-9f3k2/
               4. **PM informieren** über Q-Bewertung + neues Gehalt ab nächstem Quartal
+              5. **Probezeit-Ende im Quartal?** Für PMs, deren Probezeit bis zum Ende des Folgequartals ausläuft, steht in Spalte „Probezeit" der Quartals-Bewertungen (und im Dashboard-Hero) das Gehalt ab Probezeit-Ende: Stufe aus dieser Bewertung (max. Stufe 2) plus Bundle-Zulage nach aktuellem Teamstand.
 
               Bei Auffälligkeiten: nicht freigeben, Ursache klären.
 
