@@ -127,7 +127,7 @@ Aus NocoDB-Tabelle `termine` mit folgenden Filtern (alle UND-verknüpft):
 - `art = 'normal'` (= echter Patiententermin, keine internen Termine wie Leitungszeit oder Vor-/Nachbereitung)
 - `is_blocker = false`
 - `is_passive_leistung` wird seit 17.08.2026 NICHT mehr ausgeschlossen (thermische Anwendungen/WT/KT zählen als Termin-Umsatz, 8,51 € × Faktor)
-- `status ∈ {'erbracht', 'erbracht_und_unterschrieben'}`
+- `status ∈ {'erbracht', 'erbracht_und_unterschrieben'}` zählen voll; **`status = 'geplant'` (noch nicht abgehakt, nicht gelöscht) zählt seit 17.08.2026 × 0,7** (`GEPLANT_FAKTOR`, Valentin, wie im PM-Wochenreport); gelöschte geplante = Absagen, zählen nicht
 - Termin-Datum im eff_days-Range der zuständigen TH (`mitarbeiter[0].Id`)
 
 Pro Termin wird der Tarif berechnet über `termin_umsatz()`:
@@ -215,13 +215,17 @@ Sockel_PM = 40.000 × Wochenstunden_PM / 40
 
 Berechnet anhand der **TH-Äquivalente** im Bundle (= Bundle-Wochenstunden Therapeuten ÷ 30).
 
-**Quelle der Bundle-Wochenstunden (seit 2026-07-21):** Brutto-Vertragsstunden zum
-heutigen Stichtag aus NocoDB (`mitarbeiter.arbeitszeit_gruppen`, am Stichtag gültige
-`StundenProWoche`, nur am Stichtag Beschäftigte, Funktion `bundle_brutto_vzae()`).
-Die Zulage läuft damit — wie im Vertrag vorgesehen — mit der aktuellen Bundle-Größe
-mit. Von 2026-06 bis 2026-07 wurde übergangsweise die LZ-bereinigte Quartals-Vstd
-als Proxy genutzt (`vstd_ber / 13 / 30`); das maß das Bundle ~1 VZÄ zu klein und
-bleibt nur noch als Offline-Fallback, wenn NocoDB nicht erreichbar ist.
+**Quelle der Bundle-Wochenstunden (seit 17.08.2026, Valentin: „tagesaktuell zum Bewertungs-
+zeitpunkt, Grundlage vertragliche Arbeitsstunden, unabhängig von Abwesenheit/Krankheit"):**
+`bundle_zulage_std_taggenau(pm, alle_pms, fenster_ende=Stichtag)` rechnet die Vertrags-Kaskade
+§ 5 Nr. 5 **für den Stichtag** (Live: heute; Q-End: Bewertungszeitpunkt): Summe der
+`StundenProWoche` der am Stichtag gültigen Arbeitszeitgruppen aller an diesem Tag beschäftigten
+Bundle-Therapeut:innen (ab Tag 1; inaktive bis zum letzten erbrachten Termin; Testkonten und
+Geister raus), auf glatte 30er gerundet; PM-Anteil = eigene Wochenstunden ÷ Summe der am Stichtag
+zählenden Bundle-PMs (neue PMs ab Tag 29); zurechenbare Stunden auf 30er → Anteile = ÷ 30 → Staffel.
+Historie: 22.07.–17.08.2026 rollierender 3-Monats-Tagesdurchschnitt derselben Kaskade;
+21.–22.07. Brutto-VZÄ am Stichtag (`bundle_brutto_vzae()`); 06.–07.2026 Proxy `vstd_ber/13/30`
+aus dem €/h-Nenner (maß ~1 VZÄ zu klein). Die alten Pfade bleiben nur als Offline-Fallback.
 
 ```python
 def th_kumuliert(n_th):
@@ -244,7 +248,7 @@ bundle_zulage_pm = th_kumuliert(th_pm)
 - 100 PM-Wochenstunden im Bundle, davon 40 auf dich (Anteil 40 %)
 - Vom 1.–14. März: 180 Bundle-TH-Wochenstunden → dir zurechenbar 180 × 40 % = 72
 - Vom 15.–31. März: 210 (nach Beitritt einer TH mit 30 h/Wo) → dir zurechenbar 84
-- Tagesdurchschnitt März: (14×72 + 17×84) / 31 = 78,6
+- Tagesdurchschnitt März: (14×72 + 17×84) / 31 = 78,6 (Vertragswortlaut; seit 17.08.2026 rechnet das Modell stattdessen den Stichtagswert, Nachtrags-Punkt)
 - Jahres-Bundle-Zulage: 78,6 × (250 / 30) = 654,99 €
 
 ### 5.3 Stufen-Zulage (variabel)

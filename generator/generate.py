@@ -46,6 +46,9 @@ HB_PAUSCHALE = 27.56
 # GKV-Schiedsspruch: +4,11 % auf alle Sätze für Behandlungen ab 01.07.2026
 ERHOEHUNG_AB = '2026-07-01'
 ERHOEHUNG_FAKTOR = 1.0411
+# Geplante (noch nicht abgehakte) Termine zaehlen im Bewertungs-IST mit diesem Faktor
+# (Valentin 17.08.2026: 0,7 — wie im PM-Wochenreport). Geloeschte geplante = Absagen, zaehlen nicht.
+GEPLANT_FAKTOR = 0.7
 # Je VO: 10 € Verordnungsblattgebühr; je Blanko-VO zusätzlich 98,59 € Versorgungspauschale
 # (Pos. 54503) — NUR im Monatsreport verbucht (Stufe-1-Gehaltsrechnungen ohne VO-Gebühren!),
 # zugeordnet dem Monat des ERSTEN VO-Termins (Valentin 24.07.2026; vorher letzter Termin).
@@ -327,8 +330,8 @@ def _als_datum(v):
 
 
 def bundle_zulage_std_taggenau(pm, alle_pms, fenster_ende=None):
-    """Bundle-Zulagen-Basis nach der Vertrags-Kaskade § 5 Nr. 5, rollierend über die
-    letzten 3 Monate, tagesaktuell (Valentin-Entscheidung 23.07.2026).
+    """Bundle-Zulagen-Basis nach der Vertrags-Kaskade § 5 Nr. 5, TAGESAKTUELL zum Stichtag
+    (fenster_ende = Bewertungszeitpunkt; Valentin 17.08.2026 — bis dahin rollierend 3 Monate).
 
     Pro Kalendertag: (a) Summe der vertraglichen Wochenstunden aller an diesem Tag dem
     Bundle zugeordneten Therapeut:innen, kaufmännisch auf glatte 30er gerundet;
@@ -337,7 +340,8 @@ def bundle_zulage_std_taggenau(pm, alle_pms, fenster_ende=None):
     (d) Tagesdurchschnitt über das Fenster, auf 30er gerundet → darauf die Staffel.
 
     Bewusste Abweichungen vom Wortlaut (Nachtrags-Punkte):
-    - Fenster = rollierende 3 Monate statt Kalendermonat (geglättete, tagesaktuelle Sicht).
+    - Stichtag statt Kalendermonats-Durchschnitt (Valentin 17.08.2026: tagesaktuell zum
+      Bewertungszeitpunkt; bis 17.08. rollierende 3 Monate).
     - Neue PMs entlasten erst ab ihrem 29. Beschäftigungstag (Vertrag: ab Zuordnung) —
       bis dahin behalten die übrigen PMs ihre vollen Anteile.
     - Neue THERAPEUT:INNEN zählen ab Tag 1 in die Bundle-Größe (Vertrag § 5 Nr. 5
@@ -352,12 +356,10 @@ def bundle_zulage_std_taggenau(pm, alle_pms, fenster_ende=None):
     bei NocoDB-Fehler (Caller nutzt den alten Stichtags-/Proxy-Pfad)."""
     from datetime import date as _d, timedelta as _td
     ende = fenster_ende or _d.today()
-    m3, y3 = ende.month - 3, ende.year
-    if m3 < 1: m3, y3 = m3 + 12, y3 - 1
-    try:
-        start = _d(y3, m3, ende.day)
-    except ValueError:
-        start = _d(y3, m3 + 1, 1) - _td(days=1)
+    # Valentin 17.08.2026: Bundle-Groesse TAGESAKTUELL zum Bewertungszeitpunkt (Stichtag), kein
+    # rollierender 3-Monats-Durchschnitt mehr. Grundlage bleiben die vertraglichen Wochenstunden
+    # (StundenProWoche der am Stichtag gueltigen Gruppe), unabhaengig von Abwesenheit/Krankheit.
+    start = ende
     standorte = tuple(sorted(s.strip().lower().replace(' ', '_')
                              for s in str(pm.get('bundle_standorte') or '').split(',') if s.strip()))
     try:
@@ -2296,15 +2298,17 @@ def compute_quartal(pm, q_start, q_end, today=None):
     # BEWERTUNGS-IST = STUFE (1): NUR erbrachte Termine (finale Entscheidung
     # Valentin 23.07.2026). Deckungsgleich mit dem MediFox-Standort-Export
     # (validiert H1/2026: alle 5 Standorte ±1,4 %, gesamt +0,3 %).
-    # KEINE VO-Gebühren und KEIN 0,8×geplant im Gehalts-IST — diese Komponenten
-    # gehören ausschließlich in die Umsatz-REPORTS (Monat/Woche), NICHT in die
-    # Gehaltsmesslatte (sonst schleichende Schwellen-Aufweichung, siehe Memory).
+    # KEINE VO-Gebühren im Gehalts-IST (die gehören in die Umsatz-Reports). Geplante Termine
+    # zaehlen seit 17.08.2026 × GEPLANT_FAKTOR (0,7; Valentin, wie im PM-Wochenreport) — die
+    # 0,8-Fairness-Regel vom 22.07. war zusammen mit den VO-Gebuehren gestrichen worden.
     # Gelöschte erbrachte zählen (Offboarding-Schutz); inaktive THs zählen bis zu
     # ihrem letzten erbrachten Termin (Deaktivierungs-Regel, Stunden UND Umsatz).
     # ============================================================================
     ist = 0.0
-    ist_geplant08 = 0.0   # bleibt 0 — Feld nur für Abwärtskompatibilität
-    termine_count = 0
+    ist_geplant08 = 0.0   # gewichteter Anteil aus geplanten Terminen (× GEPLANT_FAKTOR); Feldname aus
+                          # Kompatibilitaetsgruenden (Q-End-Sanity zieht ihn fuer den MediFox-Vergleich ab)
+    termine_count = 0     # nur erbrachte
+    termine_geplant = 0
     termine_skip_29d = 0
     # Schienen-Pool (Valentin 13.08.2026): Der Schienenbau ist auf Sophia von Winkler in
     # Friedrichshain zentralisiert, im Kalender steht der Termin aber teils beim Therapeuten
@@ -2344,7 +2348,11 @@ def compute_quartal(pm, q_start, q_end, today=None):
         # Gelöschte geplante bleiben draußen (= echte Absagen).
         status = t.get('status')
         ist_erbracht = status in ('erbracht', 'erbracht_und_unterschrieben')
-        if not ist_erbracht: continue   # Stufe (1): ausschließlich erbrachte
+        ist_geplant = status == 'geplant'
+        if not (ist_erbracht or ist_geplant): continue
+        # Geplante (noch nicht abgehakte) Termine zaehlen × GEPLANT_FAKTOR (Valentin 17.08.2026,
+        # wie im PM-Wochenreport); geloeschte geplante sind Absagen und zaehlen nicht.
+        if ist_geplant and t.get('deleted_at'): continue
         if t.get('art') != 'normal': continue
         if t.get('is_blocker'): continue
         # is_passive_leistung (thermische Anwendungen/WT/KT) zaehlt seit 17.08.2026 MIT
@@ -2363,8 +2371,12 @@ def compute_quartal(pm, q_start, q_end, today=None):
             termine_skip_29d += 1
             continue
         if b > ee: continue
-        ist += termin_umsatz(t)
-        termine_count += 1
+        if ist_geplant:
+            u = termin_umsatz(t) * GEPLANT_FAKTOR
+            ist += u; ist_geplant08 += u; termine_geplant += 1
+        else:
+            ist += termin_umsatz(t)
+            termine_count += 1
 
     # VO-Gebühren sind seit 23.07.2026 NICHT mehr Teil des Bewertungs-IST (Stufe 1) —
     # sie zählen nur in den Umsatz-Reports (Monatsreport Variante C). Feld bleibt für
@@ -2446,6 +2458,7 @@ def compute_quartal(pm, q_start, q_end, today=None):
         'rechn_stufe': rechn_stufe,   # rechnerisch erreichte Stufe (motivierender Wert)
         'tats_stufe': tats_stufe,     # mit ±1-Deckel + Probezeit-Override (bewertungsrelevant)
         'termine_count': termine_count,
+        'termine_geplant': termine_geplant,
         'termine_skip_29d': termine_skip_29d,
         'probezeit_aktiv': probezeit_aktiv,
     }
