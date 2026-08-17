@@ -138,6 +138,10 @@ def test_q2_luise_max_nach_probezeit_stichtag(excel_wb, pms_config):
         assert pm_reg['gehalt_ab'] == date(2026, 8, 1)
         assert pm_reg['rechn_stufe'] == 2 and pm_reg['tats_stufe'] == 2
         assert pm_reg['monatsgehalt'] > pm_pz['monatsgehalt']
+        # festgezurrt beim Q2-Lauf (Spalte Probezeit): Luise 10 Anteile → 4.042, Max 6 → 2.900
+        assert pm_reg['festgezurrt'] and pm_reg['festgezurrt']['teamstand'] == date(2026, 7, 23)
+        assert pm_reg['monatsgehalt'] == {'Luise': 4042, 'Max': 2900}[name]
+        assert pm_reg['th_pm'] == {'Luise': 10, 'Max': 6}[name]
 
 def test_q2_laura_stichtag_ohne_effekt(excel_wb, pms_config):
     """PMs ohne Probezeit: Stichtag ändert nichts an der Bewertung."""

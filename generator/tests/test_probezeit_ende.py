@@ -44,3 +44,11 @@ def test_gehalt_berechnen_und_vorschau():
     assert v['tats_stufe'] == 2 and v['bundle_zulage'] == 3000 and v['monatsgehalt'] == 3978
     v4 = probezeit_vorschau({'wochenstd': 40, 'mindestgehalt': 40000}, 4, 9, date(2026, 8, 1))
     assert v4['tats_stufe'] == 2   # Deckel: höchstens eine Stufe über Probezeit-Stufe 1
+
+
+def test_parse_probezeit_vorschau():
+    from generate import _parse_probezeit_vorschau
+    from datetime import date
+    v = _parse_probezeit_vorschau('Ja (bis 31.07.2026; ab 01.08.2026: 4.042 €/Mon = Stufe 2 + 10 Anteile, Teamstand 23.07.2026)')
+    assert v == {'gehalt_ab': date(2026, 8, 1), 'monatsgehalt': 4042, 'tats_stufe': 2, 'th_pm': 10, 'teamstand': date(2026, 7, 23)}
+    assert _parse_probezeit_vorschau('Ja') is None and _parse_probezeit_vorschau(None) is None

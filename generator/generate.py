@@ -489,6 +489,21 @@ def probezeit_vorschau(pm, rechn_stufe, th_pm, gehalt_ab, teamstand=None, gescha
             'teamstand': teamstand, 'stufe_geschaetzt': bool(geschaetzt)}
 
 
+def _parse_probezeit_vorschau(text):
+    """Liest den beim Q-Lauf festgezurrten Wert aus der Spalte „Probezeit" der Q-Zeile:
+    'Ja (bis 31.07.2026; ab 01.08.2026: 4.042 €/Mon = Stufe 2 + 10 Anteile, Teamstand 23.07.2026)'.
+    Return dict(gehalt_ab, monatsgehalt, tats_stufe, th_pm, teamstand) oder None."""
+    import re as _re
+    from datetime import date as _date
+    m = _re.search(r'ab (\d{2})\.(\d{2})\.(\d{4}): ([\d\.]+) €/Mon = Stufe (\d) \+ (\d+) Anteile'
+                   r'(?:, Teamstand (\d{2})\.(\d{2})\.(\d{4}))?', str(text or ''))
+    if not m: return None
+    ts = _date(int(m.group(9)), int(m.group(8)), int(m.group(7))) if m.group(7) else None
+    return {'gehalt_ab': _date(int(m.group(3)), int(m.group(2)), int(m.group(1))),
+            'monatsgehalt': int(m.group(4).replace('.', '')), 'tats_stufe': int(m.group(5)),
+            'th_pm': int(m.group(6)), 'teamstand': ts}
+
+
 def _quartalsende(d):
     """Letzter Tag des Quartals, in dem d liegt."""
     from datetime import date as _date
@@ -733,9 +748,19 @@ def compute_pm(wb_or_ws, pm, q_label='Q1 2026', stichtag=None):
         tats = max(start_stufe - 1, 1)
     else:
         tats = rechn
+    festgezurrt = None
     if nach_probezeit:
         # Ausgangsstufe ist die Probezeit-Stufe 1 (§ 8 Abs. 3a), nicht die Vorquartalszeile
         tats = stufe_nach_probezeit(rechn, 1)
+        # Valentin 17.08.2026: Die beim Quartalslauf festgelegten Werte (Stufe + Anteile) sind
+        # festgezurrt und gelten ab Probezeit-Ende unverändert bis zur nächsten Q-Bewertung —
+        # keine tagesaktuelle Kaskade für diesen Zeitraum. Quelle: Spalte „Probezeit" der Q-Zeile.
+        festgezurrt = _parse_probezeit_vorschau(ws_qb.cell(row=qb_row, column=16).value)
+        if festgezurrt:
+            tats = festgezurrt['tats_stufe']
+        else:
+            print(f"    ⚠️  {pm['name']}: kein festgezurrter Wert in Spalte Probezeit ({q_label}) — "
+                  f"Stufe/Anteile werden live gerechnet (bitte Q-Zeile ergänzen: 'ab dd.mm.jjjj: X €/Mon = Stufe S + N Anteile')")
     
     # TH-Äqui für Bundle-Zulage (Stichtagswert — keine 29-Tage-Sperre, siehe Memory).
     # Brutto-Vertragsstunden HEUTE aus NocoDB (v1-Methode, METHODE.md 5.2): die
@@ -755,6 +780,9 @@ def compute_pm(wb_or_ws, pm, q_label='Q1 2026', stichtag=None):
         if th_bundle is None:
             th_bundle = kround(vstd_bundle / 13 / 30) if vstd_bundle else 0
         th_pm = kround(th_bundle * wochenstd / pm_std_bundle) if pm_std_bundle else 0
+
+    if festgezurrt:
+        th_pm = festgezurrt['th_pm']   # Anteile aus dem Q-Lauf, nicht aus der heutigen Kaskade
 
     # Probezeit wurde oben schon ermittelt (mit korrektem q_eval_end aus q_label)
     # Gehalt
@@ -816,6 +844,7 @@ def compute_pm(wb_or_ws, pm, q_label='Q1 2026', stichtag=None):
         'nach_probezeit': nach_probezeit,       # Probezeit seit dem Stichtag beendet → reguläres Gehalt
         'gehalt_ab': gehalt_ab,                 # ab wann dieses Gehalt gilt
         'probezeit_vorschau': vorschau,         # Gehalt ab Probezeit-Ende (nur wenn Ende im Stichtags-Quartal)
+        'festgezurrt': festgezurrt,             # nach Probezeit: beim Q-Lauf festgelegte Stufe/Anteile (Spalte 16)
         'stichtag': stichtag,
         'stufen_eff': stufen_q,   # für Anzeige/Gap: Schwellen des Bewertungsquartals
     }
@@ -2627,10 +2656,14 @@ def render_html(pm):
     elif pm.get('nach_probezeit'):
         ga = pm.get('gehalt_ab'); pz_e = pm.get('probezeit_ende')
         hero_gehalt_ab = f'Monatsgehalt ab {ga:%d.%m.%Y}' if ga else hero_gehalt_ab
+        fz = pm.get('festgezurrt')
+        fz_txt = (f' Stufe und Anteile ({fz["th_pm"]}) wurden mit der Bewertung {q_bewertung}'
+                  + (f' am {fz["teamstand"]:%d.%m.%Y}' if fz.get('teamstand') else '')
+                  + ' festgelegt und bleiben bis zur nächsten Quartalsbewertung unverändert.') if fz else ''
         hero_probezeit_note = ('<div class="hero-meta" style="margin-top:10px;font-size:13px;opacity:0.92;">'
                                f'Deine Probezeit endete am {pz_e:%d.%m.%Y}. Seit dem {ga:%d.%m.%Y} gilt für dich das reguläre Modell: '
                                f'Stufe aus der Bewertung {q_bewertung} (höchstens eine Stufe über der Probezeit-Stufe 1) plus Bundle-Zulage — '
-                               'die Anpassung erfolgt direkt nach Probezeit-Ende, nicht erst zum nächsten Quartal.</div>')
+                               'die Anpassung erfolgt direkt nach Probezeit-Ende, nicht erst zum nächsten Quartal.' + fz_txt + '</div>')
         einordnung_probezeit_note = ('<p style="margin:0 0 14px;padding:10px 14px;background:rgba(13,89,90,0.08);'
                                      f'border-radius:8px;font-size:13.5px;">Hinweis: Die Bewertung {q_bewertung} fiel noch in deine Probezeit. '
                                      f'Seit dem {ga:%d.%m.%Y} zählen diese Werte regulär für deine Stufe. '
@@ -3475,6 +3508,10 @@ def render_uebersicht(items, q_label):
                             f'(Stufe {vs["tats_stufe"]}, {vs["th_pm"]} Anteile)')
         elif d.get('nach_probezeit'):
             vermerk = f'regulär seit {d["gehalt_ab"]:%d.%m.%Y} (Probezeit-Ende)'
+            if d.get('festgezurrt'):
+                vermerk += f' · festgelegt {d["festgezurrt"]["teamstand"]:%d.%m.%Y}' if d['festgezurrt'].get('teamstand') else ' · festgelegt beim Q-Lauf'
+            else:
+                vermerk += ' · ACHTUNG: kein festgezurrter Wert, live gerechnet'
         else:
             vermerk = ''
         zeilen.append(f'''
