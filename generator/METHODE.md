@@ -218,11 +218,13 @@ Berechnet anhand der **TH-Äquivalente** im Bundle (= Bundle-Wochenstunden Thera
 **Quelle der Bundle-Wochenstunden (seit 17.08.2026, Valentin: „tagesaktuell zum Bewertungs-
 zeitpunkt, Grundlage vertragliche Arbeitsstunden, unabhängig von Abwesenheit/Krankheit"):**
 `bundle_zulage_std_taggenau(pm, alle_pms, fenster_ende=Stichtag)` rechnet die Vertrags-Kaskade
-§ 5 Nr. 5 **für den Stichtag** (Live: heute; Q-End: Bewertungszeitpunkt): Summe der
-`StundenProWoche` der am Stichtag gültigen Arbeitszeitgruppen aller an diesem Tag beschäftigten
-Bundle-Therapeut:innen (ab Tag 1; inaktive bis zum letzten erbrachten Termin; Testkonten und
-Geister raus), auf glatte 30er gerundet; PM-Anteil = eigene Wochenstunden ÷ Summe der am Stichtag
-zählenden Bundle-PMs (neue PMs ab Tag 29); zurechenbare Stunden auf 30er → Anteile = ÷ 30 → Staffel.
+§ 5 Nr. 5 **je Kalendertag vom Monatsanfang bis zum Stichtag und mittelt taggewichtet** (Live:
+laufender Monat bis heute; Abrechnung: voller Monat) — das ist der Vertragswortlaut
+(§ 6 Abs. 2b Monats-Tagesdurchschnitt). Je Tag: Summe der `StundenProWoche` der an diesem Tag
+gültigen Arbeitszeitgruppen aller beschäftigten Bundle-Therapeut:innen (ab Tag 1; inaktive bis
+zum letzten erbrachten Termin; Testkonten und Geister raus), auf glatte 30er gerundet; PM-Anteil
+= eigene Wochenstunden ÷ Summe der an dem Tag zählenden Bundle-PMs (neue PMs ab Tag 29);
+zurechenbare Stunden auf 30er; Tagesdurchschnitt auf 30er → Anteile = ÷ 30 → Staffel.
 Historie: 22.07.–17.08.2026 rollierender 3-Monats-Tagesdurchschnitt derselben Kaskade;
 21.–22.07. Brutto-VZÄ am Stichtag (`bundle_brutto_vzae()`); 06.–07.2026 Proxy `vstd_ber/13/30`
 aus dem €/h-Nenner (maß ~1 VZÄ zu klein). Die alten Pfade bleiben nur als Offline-Fallback.
@@ -248,7 +250,7 @@ bundle_zulage_pm = th_kumuliert(th_pm)
 - 100 PM-Wochenstunden im Bundle, davon 40 auf dich (Anteil 40 %)
 - Vom 1.–14. März: 180 Bundle-TH-Wochenstunden → dir zurechenbar 180 × 40 % = 72
 - Vom 15.–31. März: 210 (nach Beitritt einer TH mit 30 h/Wo) → dir zurechenbar 84
-- Tagesdurchschnitt März: (14×72 + 17×84) / 31 = 78,6 (Vertragswortlaut; seit 17.08.2026 rechnet das Modell stattdessen den Stichtagswert, Nachtrags-Punkt)
+- Tagesdurchschnitt März: (14×72 + 17×84) / 31 = 78,6 (so rechnet das Modell seit 17.08.2026 wieder: Kalendermonat, taggewichtet)
 - Jahres-Bundle-Zulage: 78,6 × (250 / 30) = 654,99 €
 
 ### 5.3 Stufen-Zulage (variabel)

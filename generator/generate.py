@@ -330,8 +330,8 @@ def _als_datum(v):
 
 
 def bundle_zulage_std_taggenau(pm, alle_pms, fenster_ende=None):
-    """Bundle-Zulagen-Basis nach der Vertrags-Kaskade § 5 Nr. 5, TAGESAKTUELL zum Stichtag
-    (fenster_ende = Bewertungszeitpunkt; Valentin 17.08.2026 — bis dahin rollierend 3 Monate).
+    """Bundle-Zulagen-Basis nach der Vertrags-Kaskade § 5 Nr. 5 als taggewichteter Durchschnitt des
+    Kalendermonats bis fenster_ende (Valentin 17.08.2026 — bis dahin rollierend 3 Monate).
 
     Pro Kalendertag: (a) Summe der vertraglichen Wochenstunden aller an diesem Tag dem
     Bundle zugeordneten Therapeut:innen, kaufmännisch auf glatte 30er gerundet;
@@ -340,8 +340,8 @@ def bundle_zulage_std_taggenau(pm, alle_pms, fenster_ende=None):
     (d) Tagesdurchschnitt über das Fenster, auf 30er gerundet → darauf die Staffel.
 
     Bewusste Abweichungen vom Wortlaut (Nachtrags-Punkte):
-    - Stichtag statt Kalendermonats-Durchschnitt (Valentin 17.08.2026: tagesaktuell zum
-      Bewertungszeitpunkt; bis 17.08. rollierende 3 Monate).
+    - Fenster = Kalendermonat bis Stichtag (Vertragswortlaut Monats-Tagesdurchschnitt; Valentin
+      17.08.2026 — bis dahin rollierende 3 Monate).
     - Neue PMs entlasten erst ab ihrem 29. Beschäftigungstag (Vertrag: ab Zuordnung) —
       bis dahin behalten die übrigen PMs ihre vollen Anteile.
     - Neue THERAPEUT:INNEN zählen ab Tag 1 in die Bundle-Größe (Vertrag § 5 Nr. 5
@@ -356,10 +356,12 @@ def bundle_zulage_std_taggenau(pm, alle_pms, fenster_ende=None):
     bei NocoDB-Fehler (Caller nutzt den alten Stichtags-/Proxy-Pfad)."""
     from datetime import date as _d, timedelta as _td
     ende = fenster_ende or _d.today()
-    # Valentin 17.08.2026: Bundle-Groesse TAGESAKTUELL zum Bewertungszeitpunkt (Stichtag), kein
-    # rollierender 3-Monats-Durchschnitt mehr. Grundlage bleiben die vertraglichen Wochenstunden
-    # (StundenProWoche der am Stichtag gueltigen Gruppe), unabhaengig von Abwesenheit/Krankheit.
-    start = ende
+    # Valentin 17.08.2026: Bundle-Groesse als TAGGEWICHTETER DURCHSCHNITT DES KALENDERMONATS
+    # (Monatsanfang bis Stichtag; Live: laufender Monat bis heute, Abrechnung: voller Monat) —
+    # entspricht dem Vertragswortlaut § 6 Abs. 2b (Monats-Tagesdurchschnitt). Grundlage sind die
+    # vertraglichen Wochenstunden (StundenProWoche der am Tag gueltigen Gruppe), unabhaengig von
+    # Abwesenheit/Krankheit. Vorher (22.07.-17.08.): rollierend 3 Monate.
+    start = _d(ende.year, ende.month, 1)
     standorte = tuple(sorted(s.strip().lower().replace(' ', '_')
                              for s in str(pm.get('bundle_standorte') or '').split(',') if s.strip()))
     try:
