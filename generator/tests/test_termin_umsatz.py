@@ -215,3 +215,13 @@ def test_test_termin_via_mitarbeiter():
     t2 = {'patient_vorname': 'Lea', 'patient_nachname': 'Wirtz',
           'mitarbeiter': [{'Id': 'x', 'Vorname': 'Sophia', 'Nachname': 'von Winkler'}]}
     assert not _ist_test_termin(t2)
+
+
+# === Regeln 17.08.2026 (Valentin): Bedarfsanalyse ist VO-Position, kein Termin-Umsatz ===
+
+def test_funktionsanalyse_null():
+    """Kalender-Termin „Ergotherapeutische Funktionsanalyse" = 0 € (VO-Position, kein Termin-Umsatz)"""
+    t = make_termin(20, bezeichnung='Ergotherapeutische Funktionsanalyse')
+    assert termin_umsatz(t) == 0.0
+    t2 = make_termin(20, bezeichnung='Analyse ergotherapeutischer Bedarf', verordnungstyp=2, is_hausbesuch=True)
+    assert termin_umsatz(t2) == 0.0   # auch mit PKV/HB: 0 (p <= 0 -> kein HB-Aufschlag)

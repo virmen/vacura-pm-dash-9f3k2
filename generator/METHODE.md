@@ -111,10 +111,10 @@ Aus Konstante `BERLIN_FEIERTAGE` (alle gesetzlichen Berliner Feiertage). Pro Wer
 #### 3.2.4 IST (Bundle-Umsatz)
 
 Aus NocoDB-Tabelle `termine` mit folgenden Filtern (alle UND-verknüpft):
-- `deleted_at IS NULL`
+- `deleted_at` wird NICHT gefiltert: gelöschte erbrachte Termine zählen (Offboarding-Löschungen, 22.07.2026); gelöschte geplante fallen über den Status raus
 - `art = 'normal'` (= echter Patiententermin, keine internen Termine wie Leitungszeit oder Vor-/Nachbereitung)
 - `is_blocker = false`
-- `is_passive_leistung = false` (= keine WT/KT/thermische Anwendungen)
+- `is_passive_leistung` wird seit 17.08.2026 NICHT mehr ausgeschlossen (thermische Anwendungen/WT/KT zählen als Termin-Umsatz, 8,51 € × Faktor)
 - `status ∈ {'erbracht', 'erbracht_und_unterschrieben'}`
 - Termin-Datum im eff_days-Range der zuständigen TH (`mitarbeiter[0].Id`)
 
@@ -387,8 +387,10 @@ Die neuen Werte sind methodisch sauberer, aber die alten gelten als Bewertungsgr
 ## Umsatzbegriff der Gehaltsbewertung (FINAL, 23.07.2026) — NICHT wieder anreichern!
 
 Das Bewertungs-IST (compute_quartal) ist **Stufe (1): ausschließlich erbrachte Termine**
-(Status erbracht/erbracht_und_unterschrieben, alle Leistungsarten inkl. Funktionsanalysen,
-thermischer Anwendungen etc.), bepreist nach ZI-Systematik. Validierung H1/2026 gegen
+(Status erbracht/erbracht_und_unterschrieben, alle Leistungsarten inkl. thermischer
+Anwendungen/passiver Leistungen; **Bedarfs-/Funktionsanalyse-Termine seit 17.08.2026 mit 0 €**,
+weil sie eine VO-Position sind, kein Termin-Umsatz — Valentin 17.08.2026, gleiche Regel im
+PM-Wochenreport `xD2Xp6nSiSuRUJZu`, Q-Start- und SL-Node), bepreist nach ZI-Systematik. Validierung H1/2026 gegen
 MediFox-Standort-Exporte: alle 5 Standorte ±1,4 %, gesamt +0,3 %.
 
 **Pauschal-Leistungen (Valentin 23.07.2026) — nie über die ZI-Formel:** thermische

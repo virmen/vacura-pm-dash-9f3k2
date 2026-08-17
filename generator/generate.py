@@ -1898,7 +1898,10 @@ def _basis_preis(t, dauer):
     # „Ergo. Schiene" / „Ergotherapeutische (temporäre) Schiene" — 'ergo' ist Pflicht-Marker,
     # sonst matchen „nicht erschienen" (enthält 'schiene'!) und interne Planungs-Termine.
     if _ist_schiene(bez): return SCHIENEN_PAUSCHALE
-    if 'funktionsanalyse' in bez or 'analyse ergotherapeutischer' in bez: return 41.46
+    # Bedarfs-/Funktionsanalyse ist eine VO-Position (je Verordnungsfall, Controlling-Anspruchs-
+    # logik), KEIN Termin-Umsatz — Kalender-Termine mit diesem Titel zaehlen 0 € (Valentin
+    # 17.08.2026, gleiche Regel im PM-Wochenreport, Q-Start- und SL-Node). Bis 17.08. 41,46 €.
+    if 'funktionsanalyse' in bez or 'analyse ergotherapeutischer' in bez: return 0.0
     if 'übermittlung' in bez or 'bericht an' in bez: return 1.20
     # Behandlung (alle Therapiearten): ZI-Systematik — Dauer/15 Behandlungs-ZI + 1 VNB-ZI,
     # je 18,98 € (finale Entscheidung 22.07.2026 abends: „die ist wirklich genau";
@@ -1922,6 +1925,7 @@ def termin_umsatz(t):
     datum = beginn.date().isoformat()
     f = satz_faktor(datum)
     basis = _basis_preis(t, dauer) * f
+    if basis <= 0: return 0.0   # 0-€-Positionen (z. B. Funktionsanalyse) bekommen keine HB-Pauschale (wie n8n-Nodes)
     bez = str(t.get('bezeichnung') or '').lower()
     if t.get('verordnungstyp') == 2:
         basis *= PKV_FAKTOR
@@ -2256,7 +2260,11 @@ def compute_quartal(pm, q_start, q_end, today=None):
         ist_erbracht = status in ('erbracht', 'erbracht_und_unterschrieben')
         if not ist_erbracht: continue   # Stufe (1): ausschließlich erbrachte
         if t.get('art') != 'normal': continue
-        if t.get('is_blocker') or t.get('is_passive_leistung'): continue
+        if t.get('is_blocker'): continue
+        # is_passive_leistung (thermische Anwendungen/WT/KT) zaehlt seit 17.08.2026 MIT
+        # (Valentin: Sonderposten wie thermisch/Hausbesuch/Schiene gehoeren in den Umsatz;
+        # abrechenbare Position, 8,51 € x Faktor). Gleiche Regel im PM-Wochenreport,
+        # Q-Start- und SL-Node. Vorher ausgeschlossen (~0,4 % des Umsatzes).
         if _ist_test_termin(t): continue
         try:
             b = _date.fromisoformat(t['beginn'][:10])
