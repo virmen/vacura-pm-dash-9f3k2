@@ -225,6 +225,11 @@ gültigen Arbeitszeitgruppen aller beschäftigten Bundle-Therapeut:innen (ab Tag
 zum letzten erbrachten Termin; Testkonten und Geister raus), auf glatte 30er gerundet; PM-Anteil
 = eigene Wochenstunden ÷ Summe der an dem Tag zählenden Bundle-PMs (neue PMs ab Tag 29);
 zurechenbare Stunden auf 30er; Tagesdurchschnitt auf 30er → Anteile = ÷ 30 → Staffel.
+**Seit 18.08.2026 (Valentin): Die Bundle-Zulage ändert sich innerhalb eines Quartals NICHT, für alle
+PMs.** Die Anteile werden beim Quartalslauf (Kaskade zum Lauf-Tag) je PM in **Spalte 20 „Bundle-Anteile
+(fix)"** der Q-Zeile geschrieben und gelten bis zur nächsten Quartalsbewertung; `compute_pm()` liest sie
+vorrangig (Fallback: Spalte „Probezeit"-Text bzw. Live-Kaskade mit Warnung). Q3 2026 = Werte der Q2-Bewertung
+vom 23.07.: Laura 7, Max 6, Marleen 10, Luise 10, Emily 0 (Probezeit).
 Historie: 22.07.–17.08.2026 rollierender 3-Monats-Tagesdurchschnitt derselben Kaskade;
 21.–22.07. Brutto-VZÄ am Stichtag (`bundle_brutto_vzae()`); 06.–07.2026 Proxy `vstd_ber/13/30`
 aus dem €/h-Nenner (maß ~1 VZÄ zu klein). Die alten Pfade bleiben nur als Offline-Fallback.

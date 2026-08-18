@@ -788,6 +788,19 @@ def compute_pm(wb_or_ws, pm, q_label='Q1 2026', stichtag=None):
     if festgezurrt:
         th_pm = festgezurrt['th_pm']   # Anteile aus dem Q-Lauf, nicht aus der heutigen Kaskade
 
+    # Valentin 18.08.2026: Die Bundle-Zulage aendert sich innerhalb eines Quartals NICHT — fuer
+    # alle PMs, auch die laengst aus der Probezeit. Die Anteile werden beim Quartalslauf fest-
+    # gelegt (Kaskade zum Bewertungszeitpunkt) und stehen in Spalte 20 der Q-Zeile; sie gelten
+    # bis zur naechsten Quartalsbewertung. Die Live-Kaskade oben bleibt nur als Info/Fallback.
+    anteile_fix = ws_qb.cell(row=qb_row, column=20).value
+    bundle_fix = None
+    if isinstance(anteile_fix, (int, float)):
+        th_pm_live = th_pm
+        th_pm = int(anteile_fix)
+        bundle_fix = {'th_pm': th_pm, 'th_pm_live': th_pm_live, 'quelle': f'Q-Lauf {q_label}'}
+    elif not festgezurrt:
+        print(f"    ⚠️  {pm['name']}: keine festen Bundle-Anteile in Spalte 20 ({q_label}) — live gerechnet ({th_pm} Anteile)")
+
     # Probezeit wurde oben schon ermittelt (mit korrektem q_eval_end aus q_label)
     # Gehalt
     vorschau = None
@@ -849,6 +862,7 @@ def compute_pm(wb_or_ws, pm, q_label='Q1 2026', stichtag=None):
         'gehalt_ab': gehalt_ab,                 # ab wann dieses Gehalt gilt
         'probezeit_vorschau': vorschau,         # Gehalt ab Probezeit-Ende (nur wenn Ende im Stichtags-Quartal)
         'festgezurrt': festgezurrt,             # nach Probezeit: beim Q-Lauf festgelegte Stufe/Anteile (Spalte 16)
+        'bundle_fix': bundle_fix,               # feste Bundle-Anteile des Quartals (Spalte 20, Valentin 18.08.2026)
         'stichtag': stichtag,
         'stufen_eff': stufen_q,   # für Anzeige/Gap: Schwellen des Bewertungsquartals
     }
@@ -3251,6 +3265,7 @@ def render_html(pm):
       </div>
       <p style="font-size:11px;color:var(--muted);margin-top:14px;line-height:1.5;">
         <sup>¹</sup> „Anteile" = anteilige Bundle-Größe für deine Zulage — gewichtet auf deine Wochenstunden und deinen Anteil am Bundle-Team.
+        {('Die Anteile werden mit jeder Quartalsbewertung festgelegt (zuletzt ' + str(pm['bundle_fix']['quelle']) + ') und bleiben bis zur nächsten Bewertung unverändert.') if pm.get('bundle_fix') else ''}
       </p>
     </div>
   </div>
@@ -3512,7 +3527,19 @@ def run_q_end_routine(wb, q_label):
             status = '⏳ MediFox-IST fehlt'
         ws_qb.cell(row=row, column=18, value=status)
         ws_qb.cell(row=row, column=19, value=now_str)
-        print(f'  Row {row}: {pm_cfg["name"]} → eur60={result["eur60"]:.2f}, tats={result["tats_stufe"]}, status="{status}"')
+        # Feste Bundle-Anteile fuer das Folgequartal (Valentin 18.08.2026): Kaskade zum Lauf-Tag
+        # (Kalendermonat bis heute), gilt bis zur naechsten Quartalsbewertung; Probezeit-PMs 0.
+        from datetime import date as _dtoday2
+        if result.get('probezeit_aktiv'):
+            anteile_fix = 0
+        else:
+            zger_f, _bf, _kf = bundle_zulage_std_taggenau(pm_cfg, PMS, fenster_ende=_dtoday2.today())
+            anteile_fix = int(kround(zger_f / 30)) if zger_f is not None else None
+        if anteile_fix is not None:
+            ws_qb.cell(row=row, column=20, value=anteile_fix)
+        if ws_qb.cell(row=7, column=20).value in (None, ''):
+            ws_qb.cell(row=7, column=20, value='Bundle-Anteile (fix)')
+        print(f'  Row {row}: {pm_cfg["name"]} → eur60={result["eur60"]:.2f}, tats={result["tats_stufe"]}, Anteile fix={anteile_fix}, status="{status}"')
 
     return results
 
