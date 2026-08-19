@@ -155,7 +155,10 @@ def load_stufen_aus_excel(workbook):
     if len(neu) == 6:
         STUFEN = sorted(neu, key=lambda s: s['n'])
 
-# KPI-Level für Wege-Block
+# KPI-Level für den Live-Block (Auslastung, PKV). Krankheit ist seit 18.08.2026 kein
+# Bestandteil der Dashboards mehr (Valentin: für die PMs kein erreichbarer Quotient); die
+# statischen „Konkrete Wege"-Kombinationen (STUFEN_WEGE) wurden am selben Tag durch den
+# datengetriebenen Aktionsblock ersetzt (siehe Abschnitt AKTIONSBLOCK).
 KPI_LEVELS = {
     'Auslastung': {
         'low':   {'text': 'niedrig',   'range': 'bis 84 %'},
@@ -169,65 +172,7 @@ KPI_LEVELS = {
         'high':  {'text': 'hoch',      'range': '21–30 %'},
         'vhigh': {'text': 'sehr hoch', 'range': 'über 30 %'},
     },
-    'Krankheit': {
-        'low':   {'text': 'wenig',     'range': 'bis 15 Tg./a'},
-        'mid':   {'text': 'normal',    'range': '16–20 Tg./a'},
-        'high':  {'text': 'höher',     'range': '21–25 Tg./a'},
-        'vhigh': {'text': 'sehr viel', 'range': 'über 25 Tg./a'},
-    },
 }
-
-STUFEN_WEGE = {
-    1: {'type': 'text', 'text': 'Standort im Aufbau oder nach Veränderungen — Grundlagen werden gelegt.'},
-    2: {'type': 'text', 'text': 'Solide Auslastung, Team läuft stabil.'},
-    3: {'type': 'wege', 'wege': [
-        [('Auslastung','vhigh'), ('PKV-Quote','low'), ('Krankheit','high')],
-        [('Auslastung','high'),  ('PKV-Quote','low'), ('Krankheit','high')],
-        [('Auslastung','mid'),   ('PKV-Quote','low'), ('Krankheit','low')],
-    ]},
-    4: {'type': 'wege', 'wege': [
-        [('Auslastung','vhigh'), ('PKV-Quote','mid'),  ('Krankheit','high')],
-        [('Auslastung','high'),  ('PKV-Quote','low'),  ('Krankheit','low')],
-        [('Auslastung','mid'),   ('PKV-Quote','high'), ('Krankheit','low')],
-    ]},
-    5: {'type': 'wege', 'wege': [
-        [('Auslastung','vhigh'), ('PKV-Quote','high'),  ('Krankheit','high')],
-        [('Auslastung','mid'),   ('PKV-Quote','vhigh'), ('Krankheit','low')],
-    ]},
-    6: {'type': 'text', 'text': 'Konstant Top-Ergebnisse über mehrere Quartale auf Stufe-5-Niveau.'},
-}
-
-def render_wege_block(next_stufe_num):
-    """Rendert Kombinations-Wege für die Zielstufe."""
-    if next_stufe_num not in STUFEN_WEGE:
-        return ''
-    cfg = STUFEN_WEGE[next_stufe_num]
-    if cfg['type'] == 'text':
-        return f'<div class="weg-text">{cfg["text"]}</div>'
-    weg_labels = ['Weg A','Weg B','Weg C','Weg D']
-    wege_html = ''
-    for i, kombi in enumerate(cfg['wege']):
-        vars_html = ''
-        for kpi_name, level in kombi:
-            level_info = KPI_LEVELS[kpi_name][level]
-            vars_html += (
-                '<div class="weg-var">'
-                f'<div class="weg-var-label">{kpi_name}</div>'
-                '<div class="weg-chip-track">'
-                f'<div class="weg-chip weg-chip-{level}">'
-                f'<span class="weg-chip-text">{level_info["text"]}</span>'
-                f'<span class="weg-chip-range">{level_info["range"]}</span>'
-                '</div>'
-                '</div>'
-                '</div>'
-            )
-        wege_html += (
-            '<div class="weg-card">'
-            f'<div class="weg-head"><span class="weg-head-label">{weg_labels[i]}</span><span class="weg-head-tag">Kombination</span></div>'
-            f'<div class="weg-vars">{vars_html}</div>'
-            '</div>'
-        )
-    return f'<div class="wege-grid">{wege_html}</div>'
 
 
 # PMS wird zur Laufzeit aus dem Excel-Tab 'PM-Stammdaten' geladen
@@ -893,59 +838,6 @@ def delta_naechste_stufe(pm_data):
         # Progress-Percent: wie weit im Gap
         'progress_pct': max(0, min(100, (pm_data['eur60'] - pm_data.get('stufen_eff', STUFEN)[tats-1]['eur60']) /
                                         (next_s['eur60'] - pm_data.get('stufen_eff', STUFEN)[tats-1]['eur60']) * 100)),
-    }
-
-def hebel_optionen(pm_data, gap_data, live_kpis):
-    """Konkrete Hebel-Werte um die nächste Stufe zu erreichen.
-
-    Faktoren (Standard-Approximation):
-      +1 %-Pkt PKV-Quote     ≈ +0,7 % Umsatz
-      +1 Termin/Wo (Bundle)  ≈ +0,3 % Umsatz
-      −1 %-Pkt Krankenstand  ≈ +0,5 % Umsatz   (1 %-Pkt ≈ 2,3 Tage/TH/Jahr bei 230 Werktagen)
-    """
-    if not gap_data:
-        return None
-    if not pm_data.get('eur60') or pm_data['eur60'] <= 0:
-        return None   # Probezeit-PMs ohne Q-Werte → keine Hebel
-    delta_pct = gap_data['delta_eur60'] / pm_data['eur60'] * 100
-    if delta_pct <= 0:
-        return None
-
-    F_PKV, F_TERMIN, F_KRANK = (PKV_FAKTOR - 1), 0.3, 0.5
-    d_pkv_pkt   = delta_pct / F_PKV
-    d_termin_wo = delta_pct / F_TERMIN
-    d_krank_pkt = delta_pct / F_KRANK
-    d_krank_tage = d_krank_pkt * 2.3
-
-    pkv_now    = (live_kpis or {}).get('pkv_quote') or 0
-    krank_now  = (live_kpis or {}).get('krank_tage_pro_th_jahr') or 0
-    auslast_now = (live_kpis or {}).get('auslastung') or 0
-    anzahl_th  = (live_kpis or {}).get('auslastung_n_th') or 0
-    d_termin_pro_th = (d_termin_wo / anzahl_th) if anzahl_th else None
-
-    # 3-Stufen-Plausibilität: realistic | borderline | impossible
-    if d_pkv_pkt <= 15:    pkv_lvl = 'realistic'
-    elif d_pkv_pkt <= 25:  pkv_lvl = 'borderline'
-    else:                  pkv_lvl = 'impossible'
-
-    # Termine: pro-TH-Wert ist die natürliche Plausibilitäts-Einheit.
-    # Auch bei voller Auslastung kann der Hebel ziehen — über PKV-Fokus bei rotierenden Patienten.
-    pth = d_termin_pro_th or d_termin_wo
-    if pth <= 1:    termin_lvl = 'realistic'
-    elif pth <= 2:  termin_lvl = 'borderline'
-    else:           termin_lvl = 'impossible'
-
-    if not krank_now or krank_now <= 0:  krank_lvl = 'impossible'
-    elif d_krank_tage <= krank_now * 0.5: krank_lvl = 'realistic'
-    elif d_krank_tage <= krank_now:      krank_lvl = 'borderline'
-    else:                                krank_lvl = 'impossible'
-
-    return {
-        'delta_pct': delta_pct,
-        'd_pkv_pkt': d_pkv_pkt, 'pkv_now': pkv_now, 'pkv_neu': pkv_now + d_pkv_pkt,
-        'd_termin_wo': d_termin_wo, 'd_termin_pro_th': d_termin_pro_th, 'anzahl_th': anzahl_th,
-        'd_krank_tage': d_krank_tage, 'krank_now': krank_now, 'krank_neu': max(krank_now - d_krank_tage, 0),
-        'pkv_lvl': pkv_lvl, 'termin_lvl': termin_lvl, 'krank_lvl': krank_lvl,
     }
 
 # ==================== HTML TEMPLATE ====================
@@ -1719,6 +1611,31 @@ body {
   .hebel-item { grid-template-columns: 1fr; gap: 10px; }
   .hebel-effect { width: 100%; }
 }
+
+/* === AKTIONSBLOCK (seit 18.08.2026) === */
+.kette-row { margin-top: 14px; }
+.kette-title { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px; }
+.kette { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.kette-step { background: var(--white); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 10px; text-align: center; position: relative; }
+.kette-step + .kette-step::before { content: ""; position: absolute; left: -6px; top: 50%; width: 0; height: 0; border-top: 5px solid transparent; border-bottom: 5px solid transparent; border-left: 5px solid var(--line-strong); transform: translateY(-50%); }
+.kette-mult { background: var(--teal-light); border-color: var(--teal-light); }
+.kette-res { background: var(--teal); color: #fff; border-color: var(--teal); }
+.kette-res .kette-lbl { color: rgba(255,255,255,.85); }
+.kette-val { font-size: 20px; font-weight: 800; letter-spacing: -.01em; line-height: 1.1; }
+.kette-lbl { font-size: 11px; color: var(--ink-soft); margin-top: 4px; line-height: 1.35; }
+.kette-sub { color: var(--muted); }
+.need-box { margin-top: 18px; padding: 16px 18px; border-radius: var(--radius-sm); background: var(--orange-light); border: 1px solid #ffd9b3; }
+.need-box-teal { background: var(--teal-light); border-color: var(--teal-light); }
+.need-big { font-size: 18px; font-weight: 800; }
+.hebel-name .hebel-tag { margin-left: 6px; }
+table.retro { width: 100%; border-collapse: collapse; font-size: 12.5px; background: var(--white); border-radius: 10px; overflow: hidden; }
+table.retro th { font-size: 11px; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: bottom; }
+table.retro td { padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+table.retro tr:last-child td { border-bottom: none; }
+@media (max-width: 640px) {
+  .kette { grid-template-columns: 1fr 1fr; }
+  .kette-step + .kette-step::before { display: none; }
+}
 """
 
 def fmt_eur(n, decimals=0):
@@ -2321,6 +2238,8 @@ def compute_quartal(pm, q_start, q_end, today=None):
     # ihrem letzten erbrachten Termin (Deaktivierungs-Regel, Stunden UND Umsatz).
     # ============================================================================
     ist = 0.0
+    behandlung_h = 0.0    # Dauer der gezählten Termine (geplante × GEPLANT_FAKTOR) — für den Aktionsblock
+    pkv_count = 0         # gezählte erbrachte Termine mit verordnungstyp 2/3 — für den Aktionsblock
     ist_geplant08 = 0.0   # gewichteter Anteil aus geplanten Terminen (× GEPLANT_FAKTOR); Feldname aus
                           # Kompatibilitaetsgruenden (Q-End-Sanity zieht ihn fuer den MediFox-Vergleich ab)
     termine_count = 0     # nur erbrachte
@@ -2390,9 +2309,12 @@ def compute_quartal(pm, q_start, q_end, today=None):
         if ist_geplant:
             u = termin_umsatz(t) * GEPLANT_FAKTOR
             ist += u; ist_geplant08 += u; termine_geplant += 1
+            behandlung_h += _dauer_h(t) * GEPLANT_FAKTOR
         else:
             ist += termin_umsatz(t)
             termine_count += 1
+            behandlung_h += _dauer_h(t)
+            if t.get('verordnungstyp') in (2, 3): pkv_count += 1
 
     # VO-Gebühren sind seit 23.07.2026 NICHT mehr Teil des Bewertungs-IST (Stufe 1) —
     # sie zählen nur in den Umsatz-Reports (Monatsreport Variante C). Feld bleibt für
@@ -2477,6 +2399,12 @@ def compute_quartal(pm, q_start, q_end, today=None):
         'termine_geplant': termine_geplant,
         'termine_skip_29d': termine_skip_29d,
         'probezeit_aktiv': probezeit_aktiv,
+        # seit 18.08.2026 (Aktionsblock): Behandlungszeit, PKV-Anteil, TH-Fenster
+        'behandlung_h': behandlung_h,
+        'pkv_anteil': (pkv_count / termine_count) if termine_count else None,
+        'th_eff': {mid: (th_eff_start[mid], th_eff_end[mid]) for mid in th_ids
+                   if th_eff_start.get(mid) is not None and th_eff_end.get(mid) is not None},
+        'bundle_standorte_norm': bundle_standorte,
     }
 
 
@@ -2528,7 +2456,7 @@ def compute_live_quartalsstand(pm, today=None):
 
 
 def compute_live_kpis(bundle_standorte, today=None):
-    """Berechnet Auslastung, PKV-Quote, Krank-Tage/TH/Jahr für Bundle."""
+    """Berechnet Auslastung und PKV-Quote für das Bundle (Live-Block). Krankheit seit 18.08.2026 nicht mehr Teil der Dashboards."""
     from datetime import date as _date
     today = today or _date.today()
     # Quartalsstart
@@ -2586,47 +2514,13 @@ def compute_live_kpis(bundle_standorte, today=None):
                 pkv_count += 1
     pkv_quote = pkv_count / total_count * 100 if total_count else None
     
-    # 4) KRANKHEIT: trailing 90 Kalendertage, hochgerechnet aufs Jahr
-    # — rolling, damit der Wert beim Quartalswechsel nicht abrupt zurückspringt
-    #   und Spitzenmonate (z.B. Februar-Welle) im Mess-Fenster bleiben
-    from datetime import timedelta as _td
-    from datetime import date as _dt
-    krank_start = today - _td(days=90)
-    abw = _fetch_all('mwcnx74etcl1frq')
-    krank_stunden = 0.0
-    for a in abw:
-        if a.get('deleted_at'): continue
-        if a.get('art') not in ('krank','krankheit_kind'): continue
-        if a.get('mitarbeiter_id') not in th_ids: continue
-        try:
-            von = _dt.fromisoformat(a['von'][:10])
-            bis = _dt.fromisoformat(a['bis'][:10])
-        except: continue
-        day = max(von, krank_start); end_day = min(bis, today)
-        while day <= end_day:
-            if day.weekday() < 5:
-                # Hours für Standard-TH (grob 8h, vereinfacht)
-                krank_stunden += 8.0
-            day += _td(days=1)
-    # Werktage im 90-Tage-Fenster
-    werktage_fenster = 0
-    d = krank_start
-    while d <= today:
-        if d.weekday() < 5: werktage_fenster += 1
-        d += _td(days=1)
-    krank_tage_bundle_jahr = (krank_stunden / 8) * (230 / werktage_fenster) if werktage_fenster else 0
-    anzahl_th = len(bundle_th)
-    krank_tage_pro_th_jahr = krank_tage_bundle_jahr / anzahl_th if anzahl_th else 0
-    
     return {
         'auslastung': auslastung,
         'auslastung_n_th': len(latest_per_th),
         'pkv_quote': pkv_quote,
         'pkv_termine_total': total_count,
-        'krank_tage_pro_th_jahr': krank_tage_pro_th_jahr,
         'q_start': q_start,
         'today': today,
-        'werktage_fenster': werktage_fenster,
     }
 
 def level_auslastung(val):
@@ -2643,22 +2537,439 @@ def level_pkv(val):
     if val <= 30: return 'high'
     return 'vhigh'
 
-def level_krank(val):
-    """Krank-Tage/TH/Jahr: ≤15=low, 16–20=mid, 21–25=high, >25=vhigh"""
-    if val is None: return None
-    if val <= 15: return 'low'
-    if val <= 20: return 'mid'
-    if val <= 25: return 'high'
-    return 'vhigh'
-
 def kpi_level_label(kpi, level):
     if kpi == 'Auslastung':
         return {'low':'niedrig','mid':'mittel','high':'hoch','vhigh':'sehr hoch'}.get(level, '—')
     if kpi == 'PKV-Quote':
         return {'low':'gering','mid':'mittel','high':'hoch','vhigh':'sehr hoch'}.get(level, '—')
-    if kpi == 'Krankheit':
-        return {'low':'wenig','mid':'normal','high':'höher'}.get(level, '—')
     return '—'
+
+
+# =====================================================================
+# AKTIONSBLOCK „Wie kommst du auf Stufe N?" (seit 18.08.2026)
+# Ersetzt den statischen Hebel-Block (PKV/Termine/Krank mit festen Faktoren) und die
+# statischen „Konkrete Wege"-Kombinationen. Grundgedanke (Valentin 18.08.2026):
+#   €/h = Behandlungsanteil × Erlös je Behandlungsstunde. Der Erlös je Behandlungsstunde ist
+#   praktisch konstant (103–116 €), also zählt nur, wie viele der bezahlten Stunden Behandlung
+#   sind. Greifbar gemacht über (a) abgesagte, NICHT nachbesetzte Slots (Intervallabgleich je
+#   TH und Tag: abgesagte Zeit an Anwesenheitstagen minus parallel erbrachte Termine),
+#   (b) die Auslastung des Workflows, eingeordnet an der eigenen Quartalshistorie, (c) PKV
+#   als Bonus. Krankheit ist bewusst KEIN Bestandteil (kein erreichbarer Quotient für PMs);
+#   intern wird sie nur für den Plausibilitätsfilter der „besten Monate" gerechnet.
+# Empirische Herleitung: Session 18.08.2026 (Memory project_pm_dashboard_v2, „Challenge
+# Hebel-/Wege-Block").
+# =====================================================================
+
+def _dauer_h(t):
+    """Termindauer in Stunden aus beginn/ende (0,75 h Fallback bei fehlenden Zeiten)."""
+    from datetime import datetime as _dt
+    try:
+        return (_dt.fromisoformat(t['ende'].replace('Z', '+00:00')) - _dt.fromisoformat(t['beginn'].replace('Z', '+00:00'))).total_seconds() / 3600
+    except Exception:
+        return 0.75
+
+def _iv_union_len(ivs):
+    """Gesamtlänge (h) der Vereinigung von Zeitintervallen [(start, ende), ...]."""
+    ivs = sorted(ivs); tot = 0.0; cur = None
+    for b, e in ivs:
+        if cur is None: cur = [b, e]
+        elif b <= cur[1]: cur[1] = max(cur[1], e)
+        else: tot += (cur[1] - cur[0]).total_seconds() / 3600; cur = [b, e]
+    if cur: tot += (cur[1] - cur[0]).total_seconds() / 3600
+    return tot
+
+def _iv_minus(ivs, cut):
+    """Intervalle ivs abzüglich der Intervalle cut → Restintervalle."""
+    out = []
+    for b, e in ivs:
+        segs = [(b, e)]
+        for cb, ce in cut:
+            new = []
+            for sb, se in segs:
+                if ce <= sb or cb >= se: new.append((sb, se)); continue
+                if cb > sb: new.append((sb, cb))
+                if ce < se: new.append((ce, se))
+            segs = new
+        out.extend(segs)
+    return out
+
+_ABGESAGT_STATUS = ('abgesagt_durch_therapeut', 'abgesagt_durch_patient', 'patient_nicht_erschienen')
+
+def _abwesenheits_tage():
+    """{mitarbeiter_id: {date: art}} aus NocoDB abwesenheiten (ohne gelöschte)."""
+    from datetime import date as _date, timedelta as _td
+    out = {}
+    for a in _fetch_all('mwcnx74etcl1frq'):
+        if a.get('deleted_at'): continue
+        try:
+            von = _date.fromisoformat(a['von'][:10]); bis = _date.fromisoformat(a['bis'][:10])
+        except Exception:
+            continue
+        d = out.setdefault(a.get('mitarbeiter_id'), {})
+        day = von
+        while day <= bis:
+            d[day] = a.get('art'); day += _td(days=1)
+    return out
+
+def absagen_ohne_nachbesetzung(bundle_standorte, th_eff, s, e):
+    """Abgesagte Termine (Status abgesagt_*/nicht erschienen) an Tagen OHNE Abwesenheit der TH,
+    innerhalb der eff-Fenster aus compute_quartal. „frei" = Anteil der abgesagten Zeit, den kein
+    erbrachter Termin derselben TH überdeckt (Valentin 18.08.2026: nur nicht nachbesetzte zählen).
+    Return: n_abg, h_abg (Vereinigung je TH-Tag), n_frei (Termine, deren Zeit zu >50 % frei blieb), h_frei."""
+    from datetime import date as _date, datetime as _dt
+    abw_days = _abwesenheits_tage()
+    per_day = {}
+    for st in bundle_standorte:
+        for t in _fetch_all('mf2pw17nwfzlkd2', where=f'(filiale,eq,{st})'):
+            if t.get('art') != 'normal' or t.get('is_blocker') or _ist_test_termin(t): continue
+            try: b = _date.fromisoformat(t['beginn'][:10])
+            except Exception: continue
+            if b < s or b > e: continue
+            ml = t.get('mitarbeiter') or []; mid = ml[0].get('Id') if ml else None
+            if mid not in th_eff: continue
+            es, ee = th_eff[mid]
+            if b < es or b > ee: continue
+            try:
+                x = (_dt.fromisoformat(t['beginn'].replace('Z', '+00:00')), _dt.fromisoformat(t['ende'].replace('Z', '+00:00')))
+            except Exception:
+                continue
+            if x[1] <= x[0]: continue
+            stt = t.get('status')
+            slot = per_day.setdefault((mid, b), {'erbr': [], 'abg': []})
+            if stt in ('erbracht', 'erbracht_und_unterschrieben'):
+                slot['erbr'].append(x)
+            elif stt in _ABGESAGT_STATUS and not abw_days.get(mid, {}).get(b):
+                slot['abg'].append(x)
+    n_abg = 0; h_abg = 0.0; n_frei = 0; h_frei = 0.0
+    for v in per_day.values():
+        if not v['abg']: continue
+        n_abg += len(v['abg']); h_abg += _iv_union_len(v['abg'])
+        h_frei += _iv_union_len(_iv_minus(v['abg'], v['erbr']))
+        for x in v['abg']:
+            if _iv_union_len(_iv_minus([x], v['erbr'])) > 0.5 * (x[1] - x[0]).total_seconds() / 3600:
+                n_frei += 1
+    return {'n_abg': n_abg, 'h_abg': h_abg, 'n_frei': n_frei, 'h_frei': h_frei}
+
+def _krank_stunden_intern(th_eff, s, e):
+    """Krank-Stunden der Bundle-THs in ihren eff-Fenstern (Arbeitszeitgruppen-Tagesstunden).
+    NUR intern für den Plausibilitätsfilter der Monatshistorie (Feiertags-/Brückentagsmonate
+    mit verzerrter Stundenbasis) — wird nirgends angezeigt."""
+    from datetime import date as _date, timedelta as _td
+    ma_by_id = {m['id']: m for m in _fetch_all('mc934lbrlg7w6e1')}
+    krank_h = 0.0
+    for a in _fetch_all('mwcnx74etcl1frq'):
+        if a.get('deleted_at') or a.get('art') not in ('krank', 'krankheit_kind'): continue
+        mid = a.get('mitarbeiter_id')
+        if mid not in th_eff or mid not in ma_by_id: continue
+        es, ee = th_eff[mid]
+        try:
+            von = _date.fromisoformat(a['von'][:10]); bis = _date.fromisoformat(a['bis'][:10])
+        except Exception:
+            continue
+        day = max(von, es, s); end = min(bis, ee, e)
+        while day <= end:
+            if day.weekday() < 5:
+                krank_h += _th_stunden_am_werktag(ma_by_id[mid], day)
+            day += _td(days=1)
+    return krank_h
+
+_ZERLEGUNG_CACHE = {}
+
+def zerlegung(pm, s, e, today=None):
+    """€/h-Zerlegung eines Fensters für das Bundle der PM: bezahlte Stunden (verfueg), Behandlung,
+    Erlös je Behandlungsstunde, PKV-Anteil, abgesagte/nicht nachbesetzte Slots. Cache je Bundle+Fenster
+    (mehrere PMs teilen ein Bundle)."""
+    from datetime import date as _date
+    today = today or _date.today()
+    key = (pm['bundle_standorte'], s, e, today)
+    if key in _ZERLEGUNG_CACHE:
+        return _ZERLEGUNG_CACHE[key]
+    r = compute_quartal({'bundle_standorte': pm['bundle_standorte'], 'startdatum': None, 'zufr': 10, 'start_stufe': 2}, s, e, today)
+    if not r or not r.get('behandlung_h'):
+        _ZERLEGUNG_CACHE[key] = None
+        return None
+    eff_end = r['effective_end']
+    abg = absagen_ohne_nachbesetzung(r['bundle_standorte_norm'], r['th_eff'], s, eff_end)
+    krank_h = _krank_stunden_intern(r['th_eff'], s, eff_end)
+    verf = r['verfueg']; beh = r['behandlung_h']
+    n_gew = r['termine_count'] + r['termine_geplant'] * GEPLANT_FAKTOR
+    out = {
+        'q_start': s, 'q_end': e, 'eff_end': eff_end, 'wochen': r['wochen'], 'nth': r['bundle_th_count'],
+        'verfueg': verf, 'ist': r['ist'], 'eur60': r['eur60'], 'termine': r['termine_count'], 'geplant': r['termine_geplant'],
+        'behandlung': beh, 'beh_anteil': beh / verf, 'eur_beh': r['ist'] / beh,
+        'pkv': r['pkv_anteil'] if r['pkv_anteil'] is not None else 0.0,
+        'dauer_termin': (beh / n_gew) if n_gew else 0.75,
+        # Plausibilität: Behandlungsanteil darf 82,5 % der anwesenden Zeit nicht deutlich übersteigen
+        '_plausibel': (beh / verf) <= 0.825 * (1 - krank_h / verf) + 0.02,
+        **abg,
+    }
+    _ZERLEGUNG_CACHE[key] = out
+    return out
+
+def aus4w_quartal(standorte_names, months):
+    """Ø der Monatsend-Schnappschüsse der 4W-Tabelle (SUM ist_h / SUM zielwert_h über die Standorte),
+    months = ['2026-04', ...]. None wenn keine Daten."""
+    aus = _fetch_all(AUSLASTUNG_4W_TABLE)
+    month_end = {}
+    for dt in sorted({r['datum'] for r in aus if r.get('datum')}):
+        month_end[dt[:7]] = dt
+    vals = []
+    for m in months:
+        if m not in month_end: continue
+        rr = [r for r in aus if r['datum'] == month_end[m] and r.get('standort') in standorte_names]
+        i = sum(r.get('ist_h') or 0 for r in rr); z = sum(r.get('zielwert_h') or 0 for r in rr)
+        if z: vals.append(i / z * 100)
+    return sum(vals) / len(vals) if vals else None
+
+def monats_historie(pm, monate, today):
+    """Je Monat: Behandlung je 100 bezahlte Std, Termine/Wo, leer gebliebene Absage-h/Wo, Nachbesetzungsquote,
+    4W-Auslastung (Monatsende). monate = [(y, m), ...]."""
+    from datetime import date as _date
+    import calendar
+    names = [x.strip() for x in pm['bundle_standorte'].split(',')]
+    out = []
+    for (y, m) in monate:
+        s = _date(y, m, 1); e_full = _date(y, m, calendar.monthrange(y, m)[1]); e = min(e_full, today)
+        if s > today: continue
+        z = zerlegung(pm, s, e, e)
+        if not z: continue
+        out.append({'monat': s, 'beh': z['beh_anteil'] * 100, 't_wo': z['termine'] / z['wochen'],
+                    'frei_wo': z['h_frei'] / z['wochen'],
+                    'nachbesetzt': (1 - z['h_frei'] / z['h_abg']) if z['h_abg'] else None,
+                    'aus': aus4w_quartal(names, [f'{y}-{m:02d}']), 'nth': z['nth'],
+                    'teilmonat': e < e_full, '_plausibel': z['_plausibel']})
+    return out
+
+def standort_split(pm, s, e, today):
+    """Je Standort im Bundle: TH-Zahl, bezahlte Std/Wo, leer gebliebene Absage-h und -Termine/Wo, Nachbesetzungsquote."""
+    out = []
+    for st in [x.strip() for x in pm['bundle_standorte'].split(',')]:
+        z = zerlegung({'bundle_standorte': st}, s, e, today)
+        if not z: continue
+        out.append({'name': st, 'nth': z['nth'], 'verf_wo': z['verfueg'] / z['wochen'], 'frei_wo': z['h_frei'] / z['wochen'],
+                    'frei_n_wo': z['n_frei'] / z['wochen'], 'nachbesetzt': (1 - z['h_frei'] / z['h_abg']) if z['h_abg'] else None})
+    return out
+
+def compute_aktionsblock(pm, live_aus=None, today=None):
+    """Alle Größen für den Aktionsblock. None, wenn keine nächste Stufe (Stufe 6) oder kein Live-Fenster."""
+    from datetime import date as _date, timedelta as _td
+    today = today or _date.today()
+    tats = pm.get('tats_stufe', 1)
+    if tats >= 6:
+        return None
+    qm = ((today.month - 1) // 3) * 3 + 1
+    q_s = _date(today.year, qm, 1)
+    q_e = (_date(today.year + 1, 1, 1) if qm + 3 > 12 else _date(today.year, qm + 3, 1)) - _td(days=1)
+    p_e = q_s - _td(days=1); p_s = _date(p_e.year, ((p_e.month - 1) // 3) * 3 + 1, 1)
+    live = zerlegung(pm, q_s, q_e, today)
+    if not live:
+        return None
+    ref = zerlegung(pm, p_s, p_e, p_e)
+    ziel_live = stufen_eff(q_s.isoformat())[tats]
+    thr_live = ziel_live['eur60']
+    thr_q = pm.get('stufen_eff', STUFEN)[tats]['eur60']
+    # Rest des Quartals
+    rest_tage = (q_e - live['eff_end']).days
+    rest_h = rest_tage / 7 * (live['verfueg'] / live['wochen']) if live['wochen'] else 0
+    rest_need = ((thr_live * (live['verfueg'] + rest_h) - live['ist']) / rest_h) if rest_h > 0 else None
+    rest_ref = (ref['eur60'] * satz_faktor(q_s.isoformat()) / satz_faktor(p_s.isoformat())) if ref else None
+    # Historie: letzte 3 volle Quartale (4W-Auslastung) + 12 Monate
+    names = [x.strip() for x in pm['bundle_standorte'].split(',')]
+    hist_aus = {}
+    qq_e = p_e
+    for _ in range(3):
+        qq_s = _date(qq_e.year, ((qq_e.month - 1) // 3) * 3 + 1, 1)
+        months = [f'{qq_s.year}-{m:02d}' for m in range(qq_s.month, qq_s.month + 3)]
+        hist_aus[_q_label_from_date(qq_s)] = aus4w_quartal(names, months)
+        qq_e = qq_s - _td(days=1)
+    hist_aus = dict(reversed(list(hist_aus.items())))
+    monate = []
+    y, m = today.year, today.month
+    for _ in range(12):
+        monate.append((y, m)); m -= 1
+        if m == 0: m = 12; y -= 1
+    historie = monats_historie(pm, sorted(monate), today)
+    standorte = standort_split(pm, q_s, q_e, today)
+    return {'live': live, 'ref': ref, 'ziel': ziel_live, 'thr_live': thr_live, 'thr_q': thr_q,
+            'rest_need': rest_need, 'rest_ref': rest_ref, 'hist_aus': hist_aus, 'live_aus': live_aus,
+            'historie': historie, 'standorte': standorte, 'q_label_live': _q_label_from_date(q_s),
+            'q_label_ref': _q_label_from_date(p_s), 'today': today}
+
+_MONATE_DE = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember']
+
+def _monat_de(d):
+    return f'{_MONATE_DE[d.month - 1]} {d.year}'
+
+def _stufe_fuer_wert(wert, stufen):
+    return max([x['n'] for x in stufen if wert >= x['eur60']] or [1])
+
+def render_aktionsblock(pm, ab):
+    """HTML des Aktionsblocks (Block „Aktion": Stand, Zerlegung, Bedarf, Karten, Retrospektive)."""
+    from datetime import timedelta as _td
+    live = ab['live']; ref = ab['ref']; ziel = ab['ziel']; thr_live = ab['thr_live']; thr_q = ab['thr_q']
+    n = ziel['n']; q_now = ab['q_label_live']; q_lbl = ab['q_label_ref']
+    live_aus = ab['live_aus']; hist_aus = ab['hist_aus']; historie = ab['historie']; standorte = ab['standorte']
+    de = fmt_de
+    stufen_now = stufen_eff(live['q_start'].isoformat())
+    gap_live = thr_live - live['eur60']; gap_live_pct = gap_live / live['eur60'] * 100 if live['eur60'] else 0
+    hat_bewertung = (pm.get('eur60') or 0) > 0
+    gap_q = thr_q - pm['eur60'] if hat_bewertung else None
+    wk_h = live['verfueg'] / live['wochen'] if live['wochen'] else 0
+    beh_need = thr_live / live['eur_beh'] if live['eur_beh'] else live['beh_anteil']
+    d_beh = max(0.0, beh_need - live['beh_anteil'])
+    d_h_wo = d_beh * wk_h
+    frei_wo = live['h_frei'] / live['wochen'] if live['wochen'] else 0
+    frei_n_wo = live['n_frei'] / live['wochen'] if live['wochen'] else 0
+    refill_now = (1 - live['h_frei'] / live['h_abg']) if live['h_abg'] else 0
+    aus_need = live_aus * thr_live / live['eur60'] if (live_aus and live['eur60']) else None
+    pkv_pkt = max(0.0, gap_live_pct) / (1 / (1 + live['pkv'])) if live['pkv'] is not None else None
+    hist_vals = [v for v in hist_aus.values() if v]
+    hist_max = max(hist_vals) if hist_vals else None
+    hist_mean = sum(hist_vals) / len(hist_vals) if hist_vals else None
+    if aus_need is None or gap_live <= 0: aus_tag = 'realistic'
+    elif hist_mean and aus_need <= hist_mean: aus_tag = 'realistic'
+    elif hist_max and aus_need <= hist_max: aus_tag = 'borderline'
+    else: aus_tag = 'impossible'
+    share_frei = (d_h_wo / frei_wo) if frei_wo else None
+    if share_frei is None or share_frei <= 0.35: frei_tag = 'realistic'
+    elif share_frei <= 0.7: frei_tag = 'borderline'
+    else: frei_tag = 'impossible'
+    TAG = {'realistic': ('realistic', 'realistisch'), 'borderline': ('borderline', 'ambitioniert'),
+           'impossible': ('impossible', 'bisher nicht erreicht'), 'bonus': ('borderline', 'Bonus')}
+    def _tag(k): return f'<span class="hebel-tag {TAG[k][0]}">{TAG[k][1]}</span>'
+    # Pro Kopf / je Standort
+    d_termine_wo = d_h_wo / live['dauer_termin'] if live['dauer_termin'] else 0
+    d_h_th_wo = d_h_wo / live['nth'] if live['nth'] else 0
+    wochen_je_termin_th = (live['nth'] / d_termine_wo) if d_termine_wo else None
+    verf_sum = sum(x['verf_wo'] for x in standorte) or 1
+    st_txt = '; '.join(f"{x['name']}: {de(d_h_wo * x['verf_wo'] / verf_sum, 1)} h von {de(x['frei_wo'], 0)} h leer ({de(x['frei_n_wo'], 0)} Termine je Woche, {x['nth']} Therapeut:innen)" for x in standorte)
+    st_txt_halten = '; '.join(f"{x['name']}: {de(x['frei_wo'], 0)} h leer ({de(x['frei_n_wo'], 0)} Termine je Woche, {x['nth']} Therapeut:innen)" for x in standorte)
+    nb_txt = ', '.join(f"{x['name']} {de(x['nachbesetzt'] * 100, 0)} %" for x in standorte if x['nachbesetzt'] is not None)
+    # Retrospektive: beste zwei plausiblen vollen Monate + laufendes Quartal
+    volle = [h for h in historie if not h['teilmonat'] and h.get('_plausibel', True)]
+    beste = sorted(sorted(volle, key=lambda h: -h['beh'])[:2], key=lambda h: h['monat'])
+    zeig = beste + [h for h in historie if h['monat'] >= live['q_start']]
+    rows = ''
+    for h in zeig:
+        wert = h['beh'] / 100 * live['eur_beh']
+        rows += (f"<tr><td>{_monat_de(h['monat'])}{' (bisher)' if h['teilmonat'] else ''}</td><td>{de(h['beh'], 0)}</td><td>{de(h['t_wo'], 0)}</td>"
+                 f"<td>{de(h['frei_wo'], 0)}</td><td>{de((h['nachbesetzt'] or 0) * 100, 0)} %</td>"
+                 f"<td><strong>{de(wert, 1)}</strong> (Stufe {_stufe_fuer_wert(wert, stufen_now)})</td></tr>")
+    b1 = beste[0] if beste else None
+    b1_wert = b1['beh'] / 100 * live['eur_beh'] if b1 else None
+    # Texte
+    zufr_val = pm.get('zufr') or 0
+    if zufr_val <= 0:
+        zufr_txt = '<span style="color:var(--muted);font-weight:700;">noch keine Umfrage in der Wertung</span>'
+    elif zufr_val >= ziel['zufr']:
+        zufr_txt = f'<span style="color:var(--green);font-weight:700;">erreicht ({de(zufr_val)} von 10, Schwelle {de(ziel["zufr"])})</span>'
+    else:
+        zufr_txt = f'<span style="color:var(--orange);font-weight:700;">noch {de(ziel["zufr"] - zufr_val)} Punkte bis {de(ziel["zufr"])} (aktuell {de(zufr_val)})</span>'
+    live_col = 'var(--green)' if gap_live <= 0 else ('var(--teal)' if (hat_bewertung and live['eur60'] > pm['eur60']) else 'var(--orange)')
+    live_txt = 'über der Schwelle' if gap_live <= 0 else f'es fehlen {de(gap_live, 2)} €/h ({de(gap_live_pct)} %)'
+    if hat_bewertung:
+        bew_note = (de(gap_q, 2) + ' €/h unter') if gap_q > 0 else (de(-gap_q, 2) + ' €/h über')
+        bew_col = ('<div><div class="gap-mini-label">Bewertung ' + q_lbl + '</div>'
+                   '<div class="gap-mini-val" style="color:var(--teal);">' + de(pm['eur60'], 2) + ' €/h</div>'
+                   '<div style="font-size:11px;color:var(--muted);margin-top:4px;">Stufe ' + str(pm['tats_stufe']) + (' (Probezeit)' if pm.get('probezeit_aktiv') else '') + '; ' + bew_note + ' der damaligen Schwelle ' + de(thr_q, 2) + '</div></div>')
+    else:
+        bew_col = ('<div><div class="gap-mini-label">Bewertung ' + q_lbl + '</div>'
+                   '<div class="gap-mini-val" style="color:var(--muted);">Probezeit</div>'
+                   '<div style="font-size:11px;color:var(--muted);margin-top:4px;">In der Probezeit gilt fest Stufe 1; die Werte zählen ab dem Tag nach Probezeit-Ende.</div></div>')
+    rest_txt = ''
+    if ab['rest_need'] is not None and gap_live > 0:
+        rest_txt = (f"Damit {q_now} auf Stufe {n} endet, müsste der Rest des Quartals ({(live['eff_end'] + _td(days=1)):%d.%m.} bis {live['q_end']:%d.%m.}) im Schnitt "
+                    f"<strong>{de(ab['rest_need'], 1)} €/h</strong> bringen."
+                    + (f" Zum Vergleich: euer {q_lbl} lag mit heutiger Rechenweise und aktuellem Tarif bei {de(ab['rest_ref'], 1)} €/h." if ab['rest_ref'] else ''))
+    elif gap_live <= 0:
+        rest_txt = f"Der Live-Stand liegt über der Schwelle für Stufe {n}. Es kommt darauf an, das bis {live['q_end']:%d.%m.} zu halten."
+    if live_aus and hist_aus.get(q_lbl):
+        rest_txt += f" Auslastung des Workflows aktuell {de(live_aus, 0)} % gegen {de(hist_aus[q_lbl], 1)} % im {q_lbl}."
+
+    def kette(z, title, note):
+        pct = lambda x: de(x * 100 / z['verfueg'], 0)
+        return ('<div class="kette-row"><div class="kette-title">' + title + '</div><div class="kette">'
+                '<div class="kette-step"><div class="kette-val">100</div><div class="kette-lbl">bezahlte Stunden</div></div>'
+                '<div class="kette-step"><div class="kette-val">' + pct(z['behandlung']) + '</div><div class="kette-lbl">Behandlung<br><span class="kette-sub">' + de(100 - z['behandlung'] * 100 / z['verfueg'], 0) + ' ohne Behandlung: Doku und Team, Lücken, Ausfälle</span></div></div>'
+                '<div class="kette-step kette-mult"><div class="kette-val">' + de(z['eur_beh'], 0) + ' €</div><div class="kette-lbl">je Behandlungsstunde<br><span class="kette-sub">PKV und Selbstzahler ' + de(z['pkv'] * 100, 0) + ' %</span></div></div>'
+                '<div class="kette-step kette-res"><div class="kette-val">' + de(z['eur60'], 2) + ' €/h</div><div class="kette-lbl">' + note + '</div></div>'
+                '</div></div>')
+    kette_html = kette(live, f'{q_now} bisher, je 100 bezahlte Stunden', 'aktuell')
+    if ref:
+        kette_html += kette(ref, f'Zum Vergleich {q_lbl}', 'mit heutiger Rechenweise')
+
+    if d_h_wo > 0:
+        need_html = ('<div class="need-box"><div class="need-big">Für Stufe ' + str(n) + ' fehlen ' + de(d_beh * 100, 1) + ' Behandlungsstunden je 100 bezahlte Stunden</div>'
+                     '<div style="font-size:13px;color:var(--ink-soft);margin-top:4px;">Das sind rund <strong>' + de(d_h_wo, 0) + ' Behandlungsstunden je Woche</strong> zusätzlich im Bundle (' + str(live['nth']) + ' Therapeut:innen), bei gleichem Erlös je Behandlungsstunde. Zwei Wege führen dahin, und sie überlappen sich:</div></div>')
+        karte1_desc = (f"Im {q_now} bleiben bisher <strong>{de(frei_wo, 0)} Behandlungsstunden je Woche</strong> ({de(frei_n_wo, 0)} Termine) leer, weil Termine an Anwesenheitstagen abgesagt und nicht nachbesetzt wurden. "
+                       f"Etwa {de(refill_now * 100, 0)} % der abgesagten Zeit wird heute schon nachbesetzt. Für die Lücke braucht ihr {de(d_h_wo, 0)} dieser {de(frei_wo, 0)} Stunden.")
+        karte1_kopf = (f"<strong>Auf euer Team heruntergebrochen:</strong> {de(d_h_wo, 0)} Stunden sind rund {de(d_termine_wo, 0)} zusätzliche Termine je Woche im ganzen Bundle, "
+                       f"also je Therapeut:in etwa {('ein Termin je Woche' if wochen_je_termin_th < 1.5 else 'ein Termin alle ' + de(wochen_je_termin_th, 0) + ' Wochen') if wochen_je_termin_th else 'ein Termin alle paar Wochen'} ({de(d_h_th_wo * 60, 0)} Minuten je Woche). "
+                       + (f"Je Standort: {st_txt}. " if st_txt else '') + (f"Nachbesetzt wird heute {nb_txt}." if nb_txt else ''))
+        karte1_eff = f'+{de(d_h_wo, 0)} von {de(frei_wo, 0)} h/Wo'
+        aus_eff = f'{de(live_aus, 0)} auf {de(aus_need, 0)} %' if aus_need else '-'
+        aus_desc = ((f"Dieselbe Bewegung in der Auslastung des Workflows: von {de(live_aus, 0)} % auf etwa <strong>{de(aus_need, 0)} %</strong>. " if aus_need else '')
+                    + f"Zum Vergleich eure Quartale: {', '.join(f'{k} {de(v, 1)} %' for k, v in hist_aus.items() if v)}; Zielkorridor der Geschäftsführung 88 bis 90 %.")
+        aus_from_to = {'realistic': 'Außerhalb der Ferienwochen ist das euer Normalniveau.', 'borderline': 'Das habt ihr bisher nur in eurem besten Quartal erreicht.',
+                       'impossible': 'Diesen Wert hat euer Bundle als Quartal bisher nicht erreicht.'}[aus_tag]
+        pkv_eff = f'+{de(pkv_pkt, 1)} Punkte'
+        pkv_desc = (f"{de(live['pkv'] * 100, 0)} % der Termine; jeder Punkt mehr bringt etwa {de(1 / (1 + live['pkv']), 1)} % Umsatz. "
+                    f"Für die Lücke allein wären +{de(pkv_pkt, 1)} Punkte nötig.")
+    else:
+        need_html = ('<div class="need-box"><div class="need-big">Der Live-Stand reicht für Stufe ' + str(n) + '</div>'
+                     '<div style="font-size:13px;color:var(--ink-soft);margin-top:4px;">Entscheidend ist, den Behandlungsanteil bis zum Quartalsende zu halten. Die zwei Stellschrauben dafür:</div></div>')
+        karte1_desc = (f"Im {q_now} bleiben bisher <strong>{de(frei_wo, 0)} Behandlungsstunden je Woche</strong> ({de(frei_n_wo, 0)} Termine) leer, weil Termine an Anwesenheitstagen abgesagt und nicht nachbesetzt wurden. "
+                       f"Etwa {de(refill_now * 100, 0)} % der abgesagten Zeit wird heute schon nachbesetzt.")
+        karte1_kopf = (f"Je Standort: {st_txt_halten}. " if st_txt_halten else '') + (f"Nachbesetzt wird heute {nb_txt}." if nb_txt else '')
+        karte1_eff = f'{de(frei_wo, 0)} h/Wo leer'
+        aus_eff = f'{de(live_aus, 0)} %' if live_aus else '-'
+        aus_desc = f"Zum Vergleich eure Quartale: {', '.join(f'{k} {de(v, 1)} %' for k, v in hist_aus.items() if v)}; Zielkorridor der Geschäftsführung 88 bis 90 %."
+        aus_from_to = 'Auf diesem Niveau bleiben.'
+        pkv_eff = f'{de(live["pkv"] * 100, 0)} %'
+        pkv_desc = f"{de(live['pkv'] * 100, 0)} % der Termine; jeder Punkt mehr bringt etwa {de(1 / (1 + live['pkv']), 1)} % Umsatz."
+    beste_aus = sorted(sorted([h for h in volle if h.get('aus')], key=lambda h: -h['aus'])[:2], key=lambda h: h['monat'])
+    aus_best = ', '.join(f"{_monat_de(h['monat'])} {de(h['aus'], 1)} %" for h in beste_aus)
+    retro_html = ''
+    if rows:
+        b1_txt = (f"Auf dem Niveau von {_monat_de(b1['monat'])} ({de(b1['beh'], 0)} Behandlungsstunden je 100) läge euer €/h heute bei {de(b1_wert, 1)} €; das wäre Stufe {_stufe_fuer_wert(b1_wert, stufen_now)}. Ihr habt das also schon einmal geschafft.") if b1 else ''
+        retro_html = ('<div class="need-box need-box-teal"><div class="need-big">Was bei euch schon gut lief</div>'
+                      '<div style="font-size:13px;color:var(--ink-soft);margin-top:4px;">Eure besten Monate der letzten zwölf, daneben das laufende Quartal. Die letzte Spalte rechnet den Behandlungsanteil des Monats mit dem heutigen Erlös je Behandlungsstunde (' + de(live['eur_beh'], 0) + ' €) und der heutigen Schwelle um: so viel wäre das Niveau heute wert.</div>'
+                      '<div style="overflow-x:auto;margin-top:10px;"><table class="retro">'
+                      '<thead><tr><th>Monat</th><th>Behandlung je 100 Std</th><th>Termine je Woche</th><th>Leer geblieben h/Wo</th><th>Nachbesetzt</th><th>Wert heute</th></tr></thead>'
+                      '<tbody>' + rows + '</tbody></table></div>'
+                      '<div style="font-size:13px;color:var(--ink-soft);margin-top:10px;">' + b1_txt + '</div></div>')
+    tarif_txt = ''
+    if satz_faktor(live['q_start'].isoformat()) != 1.0:
+        tarif_txt = ', mit dem Tarif um ' + de((satz_faktor(live['q_start'].isoformat()) - 1) * 100, 2) + ' % angehoben'
+    parts = []
+    parts.append('\n  <!-- BLOCK „Wie kommst du auf Stufe N?" (Aktionsblock seit 18.08.2026) -->\n  <div class="block">\n    <div class="block-label">Aktion</div>')
+    parts.append(f'    <div class="block-title">Wie kommst du auf Stufe {n}?</div>')
+    parts.append(f'    <p class="block-intro">Für Stufe {n} müssen beide Bedingungen stimmen: <strong>{de(thr_live, 2)} € Umsatz je verfügbarer Stunde</strong> (Schwelle ab {q_now}{tarif_txt}) und <strong>Team-Zufriedenheit ab {de(ziel["zufr"])}</strong>. Live-Werte sind Orientierung, gerechnet wird am Quartalsende.</p>')
+    parts.append('    <div class="gap-card">\n      <div class="gap-row" style="border-top:none;padding-top:4px;">\n        <div class="gap-row-icon" style="background:var(--teal-light);color:var(--teal);">€</div>\n        <div class="gap-row-content">\n          <div class="gap-row-title">Umsatz je verfügbarer Stunde</div>\n          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:8px;">')
+    parts.append('            ' + bew_col)
+    parts.append(f'            <div><div class="gap-mini-label">Live {q_now} ({de(live["wochen"], 1)} Wochen)</div><div class="gap-mini-val" style="color:{live_col};">{de(live["eur60"], 2)} €/h</div><div style="font-size:11px;color:{live_col};margin-top:4px;font-weight:600;">{live_txt} zu Stufe {n} ({de(thr_live, 2)})</div></div>')
+    parts.append(f'          </div>\n          <div style="font-size:12.5px;color:var(--ink-soft);margin-top:12px;line-height:1.5;">{rest_txt}</div>\n        </div>\n      </div>')
+    zufr_icon = '<div class="gap-row-icon" style="background:var(--green-light);color:var(--green);">✓</div>' if (zufr_val > 0 and zufr_val >= ziel['zufr']) else '<div class="gap-row-icon" style="background:var(--orange-light);color:var(--orange);">!</div>'
+    parts.append(f'      <div class="gap-row">\n        {zufr_icon}\n        <div class="gap-row-content">\n          <div class="gap-row-title">Team-Zufriedenheit: {zufr_txt}</div>\n          <div style="font-size:11px;color:var(--muted);margin-top:4px;">Wert aus der {q_lbl}-Umfrage; ein Live-Wert ist nicht möglich.</div>\n        </div>\n      </div>\n    </div>')
+    parts.append('    <p class="hebel-headline" style="margin-top:26px;"><strong>Woraus dein €/h besteht.</strong> Der Umsatz je verfügbarer Stunde ist Behandlungsanteil mal Erlös je Behandlungsstunde. Der Erlös je Behandlungsstunde ist bei euch seit einem Jahr fast konstant (je nach Tarif und PKV-Anteil). Was den €/h bewegt, ist der Behandlungsanteil: wie viele der bezahlten Stunden Behandlung sind.</p>')
+    parts.append(kette_html)
+    parts.append(need_html)
+    parts.append('    <div class="hebel-grid" style="margin-top:14px;">')
+    parts.append('      <div class="hebel-item"><div class="hebel-content"><div class="hebel-name">Abgesagte Slots nachbesetzen ' + _tag(frei_tag) + '</div>'
+                 '<div class="hebel-desc">' + karte1_desc + '</div><div class="hebel-desc" style="margin-top:8px;">' + karte1_kopf + '</div>'
+                 '<div class="hebel-from-to">So geht ihr vor: bei jeder Absage sofort die Warteliste des Standorts anrufen, nicht erst am Tagesende; freitags die Lücken der Folgewoche je Therapeut:in durchgehen; vor Ferien und Urlauben Serientermine bereinigen und danach wieder voll aufsetzen.</div></div>'
+                 '<div class="hebel-effect' + ('' if frei_tag == 'realistic' else ' ' + frei_tag) + '">' + karte1_eff + '</div></div>')
+    parts.append('      <div class="hebel-item"><div class="hebel-content"><div class="hebel-name">Auslastung ' + _tag(aus_tag) + '</div>'
+                 '<div class="hebel-desc">' + aus_desc + '</div><div class="hebel-from-to">' + aus_from_to + ((' Eure besten Monate: ' + aus_best + '.') if aus_best else '') + '</div></div>'
+                 '<div class="hebel-effect' + ('' if aus_tag == 'realistic' else ' ' + aus_tag) + '">' + aus_eff + '</div></div>')
+    parts.append('      <div class="hebel-item"><div class="hebel-content"><div class="hebel-name">PKV und Selbstzahler ' + _tag('bonus') + '</div>'
+                 '<div class="hebel-desc">' + pkv_desc + '</div><div class="hebel-from-to">Privatpatienten sind willkommen und zahlen den doppelten Satz; eine Zielgröße sind sie nicht.</div></div>'
+                 '<div class="hebel-effect borderline">' + pkv_eff + '</div></div>')
+    parts.append('    </div>')
+    parts.append(retro_html)
+    parts.append(f'    <p class="hebel-note">Bezahlte Stunden = Vertragsstunden ohne Urlaub, Feiertage und Fortbildung. Behandlung = Dauer der erbrachten Termine, geplante mit {de(GEPLANT_FAKTOR, 1)}. Abgesagt ohne Nachbesetzung = abgesagte Termine an Anwesenheitstagen, deren Zeitfenster kein erbrachter Termin derselben Therapeut:in überdeckt. Auslastung aus dem Auslastungs-Workflow (letzte 30 Tage). Stand {ab["today"]:%d.%m.%Y}.</p>\n  </div>\n')
+    return '\n'.join(parts)
+
 
 def render_html(pm):
     from datetime import date as _date
@@ -2752,7 +3063,7 @@ def render_html(pm):
     # Nächste Stufe - Was bringt / was fehlt
     next_block = ''
     gap_block = ''
-    wege_block_html = ''
+    ab = None            # Aktionsblock-Daten (seit 18.08.2026)
     hebel_note_condition = ''
     if d:
         next_s_obj = d['next_stufe']
@@ -2878,6 +3189,10 @@ def render_html(pm):
             live_quartal = compute_live_quartalsstand(pm)
         except Exception as _e:
             print(f'    (Live-Quartalsstand-Fehler {pm["name"]}: {_e})')
+        try:
+            ab = compute_aktionsblock(pm, live_aus=(live_kpis or {}).get('auslastung'), today=today)
+        except Exception as _e:
+            print(f'    (Aktionsblock-Fehler {pm["name"]}: {_e})')
 
         if live_kpis:
             from datetime import date as _date
@@ -2918,22 +3233,20 @@ def render_html(pm):
               </div>
               <div class="live-kpi-note">{q_aktuell} bisher · Stichprobe: {fmt_eur(live_kpis['pkv_termine_total'])} Termine</div>
             </div>'''
-            # Krankheit
-            k_val = live_kpis['krank_tage_pro_th_jahr']
-            k_lvl = level_krank(k_val) if k_val is not None else None
-            k_label = kpi_level_label('Krankheit', k_lvl) if k_lvl else '—'
-            k_text = f'{k_val:.0f} Tg./Jahr' if k_val is not None else '—'
-            k_chip_pct = {'low':32,'mid':55,'high':78}.get(k_lvl, 50) if k_lvl else 0
-            rows_html += f'''
+            # Abgesagt, nicht nachbesetzt (Kennzahl des Aktionsblocks, seit 18.08.2026)
+            if ab and ab.get('live') and ab['live'].get('wochen'):
+                _lv = ab['live']
+                _frei_wo = _lv['h_frei'] / _lv['wochen']; _frei_n = _lv['n_frei'] / _lv['wochen']
+                rows_html += f'''
             <div class="live-kpi-row">
-              <div class="live-kpi-label">Krank-Tage/TH/Jahr</div>
+              <div class="live-kpi-label">Abgesagt, nicht nachbesetzt</div>
               <div class="live-kpi-chip-track">
-                <div class="live-kpi-chip weg-chip-{k_lvl or 'low'}" style="width:{k_chip_pct}%">
-                  <span class="weg-chip-text">{k_label}</span>
-                  <span class="weg-chip-range">{k_text}</span>
+                <div class="live-kpi-chip weg-chip-mid" style="width:60%">
+                  <span class="weg-chip-text">{fmt_de(_frei_n, 0)} Termine/Wo</span>
+                  <span class="weg-chip-range">{fmt_de(_frei_wo, 0)} h/Wo</span>
                 </div>
               </div>
-              <div class="live-kpi-note">letzte 90 Tage, aufs Jahr hochgerechnet</div>
+              <div class="live-kpi-note">{q_aktuell} bisher; Absagen an Anwesenheitstagen, deren Slot leer blieb</div>
             </div>'''
 
             # €/h Live mit Stufen-Tendenz
@@ -2983,185 +3296,13 @@ def render_html(pm):
             </div>
             '''
 
-        # Konkrete Wege (Kombinationen von Auslastung, PKV, Krankheit)
-        wege_content = render_wege_block(next_s_obj['n'])
-        wege_legende = '''
-        <div class="weg-legende">
-          <div class="weg-legende-title">Was bedeuten die Stufen?</div>
-          <div class="weg-legende-row">
-            <span class="weg-legende-kpi">Auslastung</span>
-            <span class="weg-legende-item mid">mittel <span class="rg">85–92 %</span></span>
-            <span class="weg-legende-item high">hoch <span class="rg">93–95 %</span></span>
-            <span class="weg-legende-item vhigh">sehr hoch <span class="rg">96 %+</span></span>
-          </div>
-          <div class="weg-legende-row">
-            <span class="weg-legende-kpi">PKV-Quote</span>
-            <span class="weg-legende-item low">gering <span class="rg">bis 10 %</span></span>
-            <span class="weg-legende-item mid">mittel <span class="rg">11–20 %</span></span>
-            <span class="weg-legende-item high">hoch <span class="rg">21–30 %</span></span>
-            <span class="weg-legende-item vhigh">sehr hoch <span class="rg">über 30 %</span></span>
-          </div>
-          <div class="weg-legende-row">
-            <span class="weg-legende-kpi">Krankheit</span>
-            <span class="weg-legende-item low">wenig <span class="rg">10–15 Tg./a</span></span>
-            <span class="weg-legende-item mid">normal <span class="rg">16–20 Tg./a</span></span>
-            <span class="weg-legende-item high">höher <span class="rg">21–25 Tg./a</span></span>
-          </div>
-        </div>
-        '''
-        # Zufriedenheits-Voraussetzung für die Wege (UND-Bedingung neben den 3 Variablen)
-        if pm['zufr'] >= next_s_obj['zufr']:
-            zufr_voraussetzung = f'<span style="color:var(--green);font-weight:700;">✓ erreicht ({fmt_de(pm["zufr"])} / 10)</span>'
-        else:
-            _delta_z = next_s_obj['zufr'] - pm['zufr']
-            zufr_voraussetzung = f'<span style="color:var(--orange);font-weight:700;">noch +{fmt_de(_delta_z)} Pkt fehlen ({fmt_de(pm["zufr"])} → {fmt_de(next_s_obj["zufr"])})</span>'
-
-        wege_block_html = f'''
-        <div class="block">
-          <div class="block-label">Konkrete Wege</div>
-          <div class="block-title">Optionen um Stufe {next_s_obj['n']} zu erreichen</div>
-          <p class="block-intro">Jeder Weg zeigt eine <strong>realistische</strong> Kombination — schon eine davon reicht für Stufe {next_s_obj['n']}. PKV-Quote ist überall „gering" gesetzt, weil das eurem aktuellen Stand entspricht; eine höhere PKV-Quote macht jeden Weg leichter (siehe Hebel oben).</p>
-          <p class="block-intro" style="margin-top:-8px;">Voraussetzung in allen Wegen: Team-Zufriedenheit ≥ {fmt_de(next_s_obj['zufr'])} — {zufr_voraussetzung}.</p>
-          {wege_content}
-          {wege_legende}
-        </div>
-        '''
-
-    # Block: Aktion „Wie kommst du auf Stufe N?" — Q-Start + Live-Tendenz + Hebel
+    # Aktionsblock (seit 18.08.2026): ersetzt den Hebel-Block und die „Konkrete Wege"
     hebel_block_html = ''
-    h = hebel_optionen(pm, d, live_kpis)
-    # Live-Hebel: hebel_optionen mit eur60_live & verfueg_live aufrufen
-    h_live = None
-    d_live = None
-    if h and live_quartal:
-        pm_live_dict = dict(pm)
-        pm_live_dict['eur60'] = live_quartal['eur60_live']
-        pm_live_dict['verfueg'] = live_quartal['verfueg_live']
-        d_live = delta_naechste_stufe(pm_live_dict)
-        if d_live and d_live.get('delta_eur60', 0) > 0:
-            h_live = hebel_optionen(pm_live_dict, d_live, live_kpis)
-    if h:
-        TAG_LABEL = {'realistic':'realistisch', 'borderline':'ambitioniert', 'impossible':'alleine nicht möglich'}
-        def _tag(lvl): return f'<span class="hebel-tag {lvl}">{TAG_LABEL[lvl]}</span>'
-        def _eff(lvl): return '' if lvl == 'realistic' else f' {lvl}'
-
-        # Wenn Live-Hebel verfügbar: Werte daraus, plus Q-Start als Vergleich.
-        # Sonst: Q1-Werte wie bisher.
-        hsrc = h_live if h_live else h
-
-        pkv_from_to = f'von {hsrc["pkv_now"]:.0f} % auf {hsrc["pkv_neu"]:.0f} %' if hsrc["pkv_now"] else f'auf ca. {hsrc["pkv_neu"]:.0f} %'
-        if h_live and h["d_pkv_pkt"] != hsrc["d_pkv_pkt"]:
-            pkv_from_to += f' <span style="color:var(--muted);font-size:11px;">(Q-Start: +{h["d_pkv_pkt"]:.0f} %-Pkt)</span>'
-
-        if hsrc["d_termin_pro_th"] is not None and hsrc["anzahl_th"]:
-            termin_from_to = f'Bundle-weit · ≈ +{fmt_de(hsrc["d_termin_pro_th"])} Termine/Wo pro Therapeut:in (im Bundle: {hsrc["anzahl_th"]} Therapeut:innen)'
-        else:
-            termin_from_to = 'Bundle-weit, zusätzlich zu heute'
-        if h_live and h["d_termin_wo"] != hsrc["d_termin_wo"]:
-            termin_from_to += f' <span style="color:var(--muted);font-size:11px;">(Q-Start: +{h["d_termin_wo"]:.0f}/Wo)</span>'
-
-        krank_unmöglich = bool(hsrc["krank_now"] and hsrc["d_krank_tage"] > hsrc["krank_now"])
-        if krank_unmöglich:
-            krank_from_to = f'Krankenstand bereits niedrig ({hsrc["krank_now"]:.0f} Tg./TH/Jahr) — als alleiniger Hebel nicht ausreichend.'
-        elif hsrc["krank_now"]:
-            krank_from_to = f'von {hsrc["krank_now"]:.0f} auf {hsrc["krank_neu"]:.0f} Tg./TH/Jahr'
-        else:
-            krank_from_to = f'auf ca. {hsrc["krank_neu"]:.0f} Tg./TH/Jahr'
-        krank_effect_text = 'reicht alleine nicht' if krank_unmöglich else f'−{hsrc["d_krank_tage"]:.0f} Tage/TH/Jahr'
-
-        # Umsatz-Card: Q-Start vs. Live (zwei Spalten)
-        if live_quartal:
-            _next_eur = next_s_obj['eur60']
-            _live_eur = live_quartal['eur60_live']
-            _live_stufe = live_quartal['tats_stufe_live']
-            _live_delta_zu_ziel = max(0, _next_eur - _live_eur)
-            if _live_eur >= _next_eur:
-                _live_color = 'var(--green)'
-                _live_text = f'✓ über Schwelle Stufe {next_s_obj["n"]} — Live-Tendenz {_live_stufe}'
-            elif _live_eur > pm['eur60']:
-                _live_color = 'var(--teal)'
-                _live_text = f'fehlen noch +{fmt_eur(_live_delta_zu_ziel, 2)} €/h zu Stufe {next_s_obj["n"]}'
-            else:
-                _live_color = 'var(--orange)'
-                _live_text = f'aktuell unter Q1 — Trend Stufe {_live_stufe}'
-            umsatz_card = f'''
-      <div class="gap-row" style="border-top:none;padding-top:4px;">
-        <div class="gap-row-icon" style="background:var(--teal-light);color:var(--teal);">€</div>
-        <div class="gap-row-content">
-          <div class="gap-row-title">Umsatz pro Therapie-Stunde</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:8px;">
-            <div>
-              <div class="gap-mini-label">Bei Q-Start (Q1-Bewertung)</div>
-              <div class="gap-mini-val" style="color:var(--teal);">{fmt_eur(pm['eur60'], 2)} €/h</div>
-              <div style="font-size:11px;color:var(--muted);margin-top:4px;">fehlten +{fmt_eur(d['delta_eur60'], 2)} €/h zu Stufe {next_s_obj['n']} ({fmt_eur(_next_eur, 2)} €/h)</div>
-            </div>
-            <div>
-              <div class="gap-mini-label">Live (Q-bisher · {live_quartal['wochen_q_bisher']:.1f} Wo)</div>
-              <div class="gap-mini-val" style="color:{_live_color};">{fmt_eur(_live_eur, 2)} €/h</div>
-              <div style="font-size:11px;color:{_live_color};margin-top:4px;font-weight:600;">{_live_text}</div>
-            </div>
-          </div>
-        </div>
-      </div>'''
-        else:
-            umsatz_card = umsatz_html
-
-        # Zufriedenheit-Card mit Hinweis
-        zufr_card = zufr_html.replace(
-            '</div>\n            </div>',
-            '</div>\n              <div style="font-size:11px;color:var(--muted);font-style:italic;margin-top:6px;">Wert aus Q1-Umfrage · Live-Update zur Zufriedenheit nicht möglich</div>\n            </div>',
-            1
-        )
-
-        # Hebel-Headline mit Live-Vergleich
-        if h_live:
-            hebel_headline = f'Drei Hebel zur Umsatz-Lücke — bei Q-Start: <strong>+{fmt_de(h["delta_pct"])} %</strong>, aktuell live: <strong>+{fmt_de(h_live["delta_pct"])} %</strong> Bundle-Umsatz. Jeder Hebel allein würde reichen, eine Kombination ist meist realistischer (siehe Wege unten).'
-        elif live_quartal and live_quartal['eur60_live'] >= next_s_obj['eur60']:
-            hebel_headline = f'Live-Stand bereits über Schwelle Stufe {next_s_obj["n"]} — wenn das so weitergeht, wäre die nächste Stufe erreicht. Die Hebel unten zeigen den Q-Start-Stand zur Orientierung.'
-        else:
-            hebel_headline = f'Drei Hebel zur Umsatz-Lücke (<strong>+{fmt_de(h["delta_pct"])} % Bundle-Umsatz</strong>) — jeder einzeln würde reichen, eine Kombination ist meist realistischer (siehe Wege unten).'
-
-        hebel_block_html = f'''
-  <!-- BLOCK „Wie kommst du auf Stufe N?" — Vergleich Q-Start vs. Live -->
-  <div class="block">
-    <div class="block-label">Aktion</div>
-    <div class="block-title">Wie kommst du auf Stufe {next_s_obj['n']}?</div>
-    <p class="block-intro">Für Stufe {next_s_obj['n']} müssen <strong>beide</strong> Bedingungen erfüllt sein — Umsatz <strong>und</strong> Team-Zufriedenheit. <em style="color:var(--muted);">Live-Werte sind Orientierung; die finale Bewertung erfolgt am Q-Ende.</em></p>
-    <div class="gap-card">
-      {umsatz_card}
-      {zufr_card}
-    </div>
-    <p class="hebel-headline" style="margin-top:24px">
-      {hebel_headline}
-    </p>
-    <div class="hebel-grid">
-      <div class="hebel-item">
-        <div class="hebel-content">
-          <div class="hebel-name">Höherer PKV-Anteil {_tag(hsrc["pkv_lvl"])}</div>
-          <div class="hebel-desc">Privatpatienten aktiv ansprechen. PKV zahlt {fmt_de(PKV_FAKTOR)}× den GKV-Tarif.</div>
-          <div class="hebel-from-to">{pkv_from_to}</div>
-        </div>
-        <div class="hebel-effect{_eff(hsrc["pkv_lvl"])}">+{hsrc["d_pkv_pkt"]:.0f} %-Pkt PKV</div>
-      </div>
-      <div class="hebel-item">
-        <div class="hebel-content">
-          <div class="hebel-name">Mehr Termine pro Woche {_tag(hsrc["termin_lvl"])}</div>
-          <div class="hebel-desc">Auslastung erhöhen, neue Patienten gewinnen, Slots besser nutzen.</div>
-          <div class="hebel-from-to">{termin_from_to}</div>
-        </div>
-        <div class="hebel-effect{_eff(hsrc["termin_lvl"])}">+{hsrc["d_termin_wo"]:.0f} Termine/Wo</div>
-      </div>
-      <div class="hebel-item">
-        <div class="hebel-content">
-          <div class="hebel-name">Krankenstand senken {_tag(hsrc["krank_lvl"])}</div>
-          <div class="hebel-desc">Team-Gesundheit, gute Urlaubsplanung, keine Ansteckungsketten.</div>
-          <div class="hebel-from-to">{krank_from_to}</div>
-        </div>
-        <div class="hebel-effect{_eff(hsrc["krank_lvl"])}">{krank_effect_text}</div>
-      </div>
-    </div>
-    <p class="hebel-note">Lineare Näherungen — Live-Werte zeigen den Stand der ersten Q-Wochen und können sich mit kommenden Urlaubsblöcken noch verschieben. Faktoren: +1 %-Pkt PKV ≈ +{fmt_de(PKV_FAKTOR-1)} % Umsatz · +1 Termin/Wo Bundle ≈ +0,3 % · −1 %-Pkt Krank ≈ +0,5 %. PKV-Tarif {fmt_de(PKV_FAKTOR)}× GKV, 230 Werktage/Jahr.</p>
-  </div>'''
+    if d and ab:
+        try:
+            hebel_block_html = render_aktionsblock(pm, ab)
+        except Exception as _e:
+            print(f'    (Aktionsblock-Render-Fehler {pm["name"]}: {_e})')
 
     # Timeline: nur bewertete Quartale + laufendes (keine leeren Zukunfts-Karten)
     year = today.year
@@ -3327,8 +3468,6 @@ def render_html(pm):
   {next_block}
 
   {hebel_block_html}
-
-  {wege_block_html}
 
   <!-- BLOCK 8: TIMELINE -->
   <div class="block">

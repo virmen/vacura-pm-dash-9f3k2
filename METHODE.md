@@ -87,11 +87,23 @@ eff_days  = (eff_end − eff_start).days + 1   (oder 0 wenn eff_start > eff_end)
 
 ```python
 for TH in Bundle:
-    wochenstunden_th = auslastung_4w.arbeitszeit_h / 4   # 4-Wo-Schnitt, gewichtet
-    if wochenstunden_th == 0:
-        wochenstunden_th = mitarbeiter.arbeitszeit_gruppen[0].StundenProWoche   # Fallback
-    vstd_ber += wochenstunden_th × eff_days / 7
+    for Tag in eff_start..eff_end (nur Mo–Fr):
+        vstd_ber += StundenProWoche(am Tag gültige arbeitszeit_gruppe) / 5
 ```
+
+**Seit 17.08.2026 (Valentin: „Vertragsstunden als Grundlage"):** Basis ist das Vertragsfeld
+`StundenProWoche` der am jeweiligen Tag gültigen Arbeitszeitgruppe (GueltigAb/GueltigBis),
+brutto und unabhängig von Abwesenheiten. Bis 17.08. kam der Wert aus `auslastung_4w.arbeitszeit_h/4`
+(jüngster Snapshot je TH). Das war fehlerhaft: `arbeitszeit_h` ist die Slot-Summe der letzten
+**30 Kalendertage** (20–22 Werktage) abzüglich Feiertage; durch 4 geteilt liegt der Wert je nach
+Wochentag des Snapshots 0–10 % über den Vertragsstunden, und der Auslastungs-Workflow schreibt
+Snapshots erst 35 Tage später (die Q2-Bewertung am 23.07. rechnete mit Snapshots vom 18.06.).
+Die Q1-Bewertung, auf die die Stufen-Schwellen kalibriert wurden, war vertragsbasiert (Excel-VStd
+Laura 4.686 h ≈ StundenProWoche 4.659 h; Snapshot-Variante wäre 5.067 h). Die Schwellen bleiben
+deshalb unverändert. Über volle Wochen ist StundenProWoche/5 je Werktag identisch mit
+Wochenstunden × Wochen; für Teilfenster zählen nur Werktage (kein Wochenend-Anteil).
+Datenpflege: Slot-Summe und StundenProWoche sollen je Gruppe übereinstimmen (Stand 17.08.: nur
+Johannes Tetzner 33 vs. 30).
 
 #### 3.2.2 Abw_ber (Abwesenheiten)
 
@@ -115,7 +127,7 @@ Aus NocoDB-Tabelle `termine` mit folgenden Filtern (alle UND-verknüpft):
 - `art = 'normal'` (= echter Patiententermin, keine internen Termine wie Leitungszeit oder Vor-/Nachbereitung)
 - `is_blocker = false`
 - `is_passive_leistung` wird seit 17.08.2026 NICHT mehr ausgeschlossen (thermische Anwendungen/WT/KT zählen als Termin-Umsatz, 8,51 € × Faktor)
-- `status ∈ {'erbracht', 'erbracht_und_unterschrieben'}`
+- `status ∈ {'erbracht', 'erbracht_und_unterschrieben'}` zählen voll; **`status = 'geplant'` (noch nicht abgehakt, nicht gelöscht) zählt seit 17.08.2026 × 0,7** (`GEPLANT_FAKTOR`, Valentin, wie im PM-Wochenreport); gelöschte geplante = Absagen, zählen nicht
 - Termin-Datum im eff_days-Range der zuständigen TH (`mitarbeiter[0].Id`)
 
 Pro Termin wird der Tarif berechnet über `termin_umsatz()`:
@@ -203,13 +215,24 @@ Sockel_PM = 40.000 × Wochenstunden_PM / 40
 
 Berechnet anhand der **TH-Äquivalente** im Bundle (= Bundle-Wochenstunden Therapeuten ÷ 30).
 
-**Quelle der Bundle-Wochenstunden (seit 2026-07-21):** Brutto-Vertragsstunden zum
-heutigen Stichtag aus NocoDB (`mitarbeiter.arbeitszeit_gruppen`, am Stichtag gültige
-`StundenProWoche`, nur am Stichtag Beschäftigte, Funktion `bundle_brutto_vzae()`).
-Die Zulage läuft damit — wie im Vertrag vorgesehen — mit der aktuellen Bundle-Größe
-mit. Von 2026-06 bis 2026-07 wurde übergangsweise die LZ-bereinigte Quartals-Vstd
-als Proxy genutzt (`vstd_ber / 13 / 30`); das maß das Bundle ~1 VZÄ zu klein und
-bleibt nur noch als Offline-Fallback, wenn NocoDB nicht erreichbar ist.
+**Quelle der Bundle-Wochenstunden (seit 17.08.2026, Valentin: „tagesaktuell zum Bewertungs-
+zeitpunkt, Grundlage vertragliche Arbeitsstunden, unabhängig von Abwesenheit/Krankheit"):**
+`bundle_zulage_std_taggenau(pm, alle_pms, fenster_ende=Stichtag)` rechnet die Vertrags-Kaskade
+§ 5 Nr. 5 **je Kalendertag vom Monatsanfang bis zum Stichtag und mittelt taggewichtet** (Live:
+laufender Monat bis heute; Abrechnung: voller Monat) — das ist der Vertragswortlaut
+(§ 6 Abs. 2b Monats-Tagesdurchschnitt). Je Tag: Summe der `StundenProWoche` der an diesem Tag
+gültigen Arbeitszeitgruppen aller beschäftigten Bundle-Therapeut:innen (ab Tag 1; inaktive bis
+zum letzten erbrachten Termin; Testkonten und Geister raus), auf glatte 30er gerundet; PM-Anteil
+= eigene Wochenstunden ÷ Summe der an dem Tag zählenden Bundle-PMs (neue PMs ab Tag 29);
+zurechenbare Stunden auf 30er; Tagesdurchschnitt auf 30er → Anteile = ÷ 30 → Staffel.
+**Seit 18.08.2026 (Valentin): Die Bundle-Zulage ändert sich innerhalb eines Quartals NICHT, für alle
+PMs.** Die Anteile werden beim Quartalslauf (Kaskade zum Lauf-Tag) je PM in **Spalte 20 „Bundle-Anteile
+(fix)"** der Q-Zeile geschrieben und gelten bis zur nächsten Quartalsbewertung; `compute_pm()` liest sie
+vorrangig (Fallback: Spalte „Probezeit"-Text bzw. Live-Kaskade mit Warnung). Q3 2026 = Werte der Q2-Bewertung
+vom 23.07.: Laura 7, Max 6, Marleen 10, Luise 10, Emily 0 (Probezeit).
+Historie: 22.07.–17.08.2026 rollierender 3-Monats-Tagesdurchschnitt derselben Kaskade;
+21.–22.07. Brutto-VZÄ am Stichtag (`bundle_brutto_vzae()`); 06.–07.2026 Proxy `vstd_ber/13/30`
+aus dem €/h-Nenner (maß ~1 VZÄ zu klein). Die alten Pfade bleiben nur als Offline-Fallback.
 
 ```python
 def th_kumuliert(n_th):
@@ -232,7 +255,7 @@ bundle_zulage_pm = th_kumuliert(th_pm)
 - 100 PM-Wochenstunden im Bundle, davon 40 auf dich (Anteil 40 %)
 - Vom 1.–14. März: 180 Bundle-TH-Wochenstunden → dir zurechenbar 180 × 40 % = 72
 - Vom 15.–31. März: 210 (nach Beitritt einer TH mit 30 h/Wo) → dir zurechenbar 84
-- Tagesdurchschnitt März: (14×72 + 17×84) / 31 = 78,6
+- Tagesdurchschnitt März: (14×72 + 17×84) / 31 = 78,6 (so rechnet das Modell seit 17.08.2026 wieder: Kalendermonat, taggewichtet)
 - Jahres-Bundle-Zulage: 78,6 × (250 / 30) = 654,99 €
 
 ### 5.3 Stufen-Zulage (variabel)
@@ -272,10 +295,28 @@ Während des laufenden Quartals zeigt das Dashboard zusätzlich Live-Werte. Dies
 
 **Disclaimer im Dashboard:** Live-Werte sind nur Orientierung. Die finale Q-Bewertung erfolgt am Quartalsende und ist allein für das Gehalt bindend.
 
-**Live-KPIs zusätzlich** (siehe `compute_live_kpis()`):
+**Live-KPIs zusätzlich** (siehe `compute_live_kpis()` und `zerlegung()`):
 - **Auslastung** (letzte 30 Tage, rolling) — aus NocoDB-Tabelle `auslastung_4w`
 - **PKV-Quote** (Q-bisher) — Anteil PKV/SZ-Termine
-- **Krank-Tage/TH/Jahr** (trailing 90 Tage, hochgerechnet) — aus NocoDB `abwesenheiten` mit Filter `art ∈ {krank, krankheit_kind}`
+- **Abgesagt, nicht nachbesetzt** (Q-bisher) — abgesagte Termine an Anwesenheitstagen, deren Zeitfenster kein erbrachter Termin derselben Therapeut:in überdeckt (siehe 6.1)
+- Krankheit ist seit 18.08.2026 KEIN Bestandteil der Dashboards mehr (Valentin: für die PMs kein erreichbarer Quotient). Sie bleibt in der €/h-Rechnung wie gehabt (nicht abgezogen, 3.2.2), wird aber nirgends angezeigt.
+
+### 6.1 Aktionsblock „Wie kommst du auf Stufe N?" (seit 18.08.2026)
+
+Ersetzt den früheren Hebel-Block (PKV/Termine/Krank mit festen Faktoren 1,0/0,3/0,5 und starren Plausibilitätsgrenzen) und die statischen „Konkrete Wege"-Kombinationen. Anlass war die empirische Prüfung vom 18.08.2026 (Bundle-Monate Okt 25 bis Jul 26): kein Bundle hatte je über ein Quartal die in den Wegen geforderte Auslastung (93 % und mehr) oder PKV-Quote (11 % und mehr) erreicht; der Live-Vergleich lief außerdem gegen die nicht indexierte Schwelle des Bewertungsquartals (72,64 statt 75,63 ab Q3 2026).
+
+**Grundgedanke:** €/h = Behandlungsanteil × Erlös je Behandlungsstunde. Der Erlös je Behandlungsstunde (IST ÷ Behandlungsstunden) liegt bei allen Bundles seit einem Jahr zwischen 103 und 116 € (tarifabhängig), bewegt sich also kaum. Was den €/h bewegt, ist der Behandlungsanteil: Behandlungsstunden ÷ bezahlte Stunden (`verfueg`).
+
+**Bausteine** (Funktionen in `generate.py`, Abschnitt AKTIONSBLOCK):
+1. `compute_quartal()` liefert zusätzlich `behandlung_h` (Dauer der gezählten Termine, geplante × 0,7), `pkv_anteil` und `th_eff` (TH-Fenster).
+2. `absagen_ohne_nachbesetzung()` — je TH und Tag: Vereinigung der abgesagten Zeitfenster (Status `abgesagt_*`, `patient_nicht_erschienen`, nur an Tagen ohne Abwesenheit der TH) minus die Zeitfenster erbrachter Termine derselben TH. Rest = „frei geblieben". Valentin 18.08.2026: nur nicht nachbesetzte Absagen zählen, oft läuft parallel ein nachbesetzter Termin. Empirisch bleibt rund die Hälfte der abgesagten Zeit frei.
+3. `zerlegung()` — bezahlte Stunden, Behandlung, Erlös je Behandlungsstunde, PKV, freie Absage-Slots für ein Fenster (Cache je Bundle und Fenster). Intern wird zusätzlich der Krank-Anteil gerechnet, ausschließlich für den Plausibilitätsfilter `_plausibel` (Behandlungsanteil ≤ 0,825 × Anwesenheitsanteil + 2 Punkte); Monate mit verzerrter Stundenbasis (Feiertage/Brückentage, z. B. Mai 2026) fallen damit aus der Retrospektive.
+4. `compute_aktionsblock()` — Live-Fenster (laufendes Quartal), Referenz (Vorquartal, „mit heutiger Rechenweise"), Schwelle der nächsten Stufe **indexiert auf das laufende Quartal** (`stufen_eff(q_start)`), Bedarf für den Rest des Quartals, 4W-Auslastung der letzten drei Quartale (`aus4w_quartal`), Monatshistorie (12 Monate, `monats_historie`), Standort-Split (`standort_split`).
+5. `render_aktionsblock()` — Block „Aktion": Stand (Bewertung vs. Live gegen indexierte Schwelle, Rest-Quartals-Bedarf, Zufriedenheit), Kette „100 bezahlte Stunden → Behandlung → × Erlös je Behandlungsstunde = €/h" (laufendes und Vorquartal), Bedarf in Behandlungsstunden je 100 und je Woche, drei Karten (Abgesagte Slots nachbesetzen mit Herunterbrechung je Therapeut:in und je Standort und drei Vorgehensschritten; Auslastung mit Einordnung an der eigenen Quartalshistorie; PKV als Bonus), Tabelle „Was bei euch schon gut lief" (beste zwei plausible Monate der letzten zwölf plus laufendes Quartal, „Wert heute" = Behandlungsanteil × heutiger Erlös je Behandlungsstunde).
+
+**Einordnungs-Regeln (Tags):** Auslastung „realistisch" wenn der nötige Wert ≤ Ø der letzten drei Quartale, „ambitioniert" ≤ bestes Quartal, sonst „bisher nicht erreicht". Nachbesetzen „realistisch" wenn ≤ 35 % der frei gebliebenen Absage-Stunden gebraucht werden, „ambitioniert" ≤ 70 %, sonst „bisher nicht erreicht". Liegt Live über der Schwelle, zeigt der Block die Halten-Variante.
+
+**Bewusst nicht enthalten:** Krankheit (siehe oben), feste Umsatz-Faktoren, Stufenwege ab Stufe 4 als „realistische Kombination" (mit heutigem Preismix und Krankenstand bräuchte Stufe 5 rechnerisch über 100 % Auslastung).
 
 ---
 
@@ -365,6 +406,7 @@ Die neuen Werte sind methodisch sauberer, aber die alten gelten als Bewertungsgr
 
 | Datum | Änderung | Wer |
 |---|---|---|
+| 2026-08-18 | Aktionsblock statt Hebel-Block und „Konkrete Wege" (Zerlegung €/h, abgesagte nicht nachbesetzte Slots, eigene Historie), Krankheit komplett aus den Dashboards, Live-Vergleich gegen indexierte Schwelle — Details 6.1 | Valentin + Claude |
 | 2026-08-17 | Probezeit-Ende innerhalb des Quartals: Gehalt ab dem Folgetag des Probezeit-Endes auf reguläres Modell (Stufe aus dem zuletzt bewerteten Quartal, max. Stufe 2, plus Bundle-Zulage); Luise/Max ab 01.08.2026 — Details 5.4 | Valentin + Claude |
 | 2026-04-29 | Hebel-Block-Plausibilität (3-Stufen-Tags), PKV-Schwellen reduziert | Claude + Valentin |
 | 2026-05-15 | LI-Pfad entfernt, direkte €/h-Logik, Q-Live-Block eingeführt | Claude + Valentin |

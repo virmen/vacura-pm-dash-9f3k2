@@ -295,10 +295,28 @@ Während des laufenden Quartals zeigt das Dashboard zusätzlich Live-Werte. Dies
 
 **Disclaimer im Dashboard:** Live-Werte sind nur Orientierung. Die finale Q-Bewertung erfolgt am Quartalsende und ist allein für das Gehalt bindend.
 
-**Live-KPIs zusätzlich** (siehe `compute_live_kpis()`):
+**Live-KPIs zusätzlich** (siehe `compute_live_kpis()` und `zerlegung()`):
 - **Auslastung** (letzte 30 Tage, rolling) — aus NocoDB-Tabelle `auslastung_4w`
 - **PKV-Quote** (Q-bisher) — Anteil PKV/SZ-Termine
-- **Krank-Tage/TH/Jahr** (trailing 90 Tage, hochgerechnet) — aus NocoDB `abwesenheiten` mit Filter `art ∈ {krank, krankheit_kind}`
+- **Abgesagt, nicht nachbesetzt** (Q-bisher) — abgesagte Termine an Anwesenheitstagen, deren Zeitfenster kein erbrachter Termin derselben Therapeut:in überdeckt (siehe 6.1)
+- Krankheit ist seit 18.08.2026 KEIN Bestandteil der Dashboards mehr (Valentin: für die PMs kein erreichbarer Quotient). Sie bleibt in der €/h-Rechnung wie gehabt (nicht abgezogen, 3.2.2), wird aber nirgends angezeigt.
+
+### 6.1 Aktionsblock „Wie kommst du auf Stufe N?" (seit 18.08.2026)
+
+Ersetzt den früheren Hebel-Block (PKV/Termine/Krank mit festen Faktoren 1,0/0,3/0,5 und starren Plausibilitätsgrenzen) und die statischen „Konkrete Wege"-Kombinationen. Anlass war die empirische Prüfung vom 18.08.2026 (Bundle-Monate Okt 25 bis Jul 26): kein Bundle hatte je über ein Quartal die in den Wegen geforderte Auslastung (93 % und mehr) oder PKV-Quote (11 % und mehr) erreicht; der Live-Vergleich lief außerdem gegen die nicht indexierte Schwelle des Bewertungsquartals (72,64 statt 75,63 ab Q3 2026).
+
+**Grundgedanke:** €/h = Behandlungsanteil × Erlös je Behandlungsstunde. Der Erlös je Behandlungsstunde (IST ÷ Behandlungsstunden) liegt bei allen Bundles seit einem Jahr zwischen 103 und 116 € (tarifabhängig), bewegt sich also kaum. Was den €/h bewegt, ist der Behandlungsanteil: Behandlungsstunden ÷ bezahlte Stunden (`verfueg`).
+
+**Bausteine** (Funktionen in `generate.py`, Abschnitt AKTIONSBLOCK):
+1. `compute_quartal()` liefert zusätzlich `behandlung_h` (Dauer der gezählten Termine, geplante × 0,7), `pkv_anteil` und `th_eff` (TH-Fenster).
+2. `absagen_ohne_nachbesetzung()` — je TH und Tag: Vereinigung der abgesagten Zeitfenster (Status `abgesagt_*`, `patient_nicht_erschienen`, nur an Tagen ohne Abwesenheit der TH) minus die Zeitfenster erbrachter Termine derselben TH. Rest = „frei geblieben". Valentin 18.08.2026: nur nicht nachbesetzte Absagen zählen, oft läuft parallel ein nachbesetzter Termin. Empirisch bleibt rund die Hälfte der abgesagten Zeit frei.
+3. `zerlegung()` — bezahlte Stunden, Behandlung, Erlös je Behandlungsstunde, PKV, freie Absage-Slots für ein Fenster (Cache je Bundle und Fenster). Intern wird zusätzlich der Krank-Anteil gerechnet, ausschließlich für den Plausibilitätsfilter `_plausibel` (Behandlungsanteil ≤ 0,825 × Anwesenheitsanteil + 2 Punkte); Monate mit verzerrter Stundenbasis (Feiertage/Brückentage, z. B. Mai 2026) fallen damit aus der Retrospektive.
+4. `compute_aktionsblock()` — Live-Fenster (laufendes Quartal), Referenz (Vorquartal, „mit heutiger Rechenweise"), Schwelle der nächsten Stufe **indexiert auf das laufende Quartal** (`stufen_eff(q_start)`), Bedarf für den Rest des Quartals, 4W-Auslastung der letzten drei Quartale (`aus4w_quartal`), Monatshistorie (12 Monate, `monats_historie`), Standort-Split (`standort_split`).
+5. `render_aktionsblock()` — Block „Aktion": Stand (Bewertung vs. Live gegen indexierte Schwelle, Rest-Quartals-Bedarf, Zufriedenheit), Kette „100 bezahlte Stunden → Behandlung → × Erlös je Behandlungsstunde = €/h" (laufendes und Vorquartal), Bedarf in Behandlungsstunden je 100 und je Woche, drei Karten (Abgesagte Slots nachbesetzen mit Herunterbrechung je Therapeut:in und je Standort und drei Vorgehensschritten; Auslastung mit Einordnung an der eigenen Quartalshistorie; PKV als Bonus), Tabelle „Was bei euch schon gut lief" (beste zwei plausible Monate der letzten zwölf plus laufendes Quartal, „Wert heute" = Behandlungsanteil × heutiger Erlös je Behandlungsstunde).
+
+**Einordnungs-Regeln (Tags):** Auslastung „realistisch" wenn der nötige Wert ≤ Ø der letzten drei Quartale, „ambitioniert" ≤ bestes Quartal, sonst „bisher nicht erreicht". Nachbesetzen „realistisch" wenn ≤ 35 % der frei gebliebenen Absage-Stunden gebraucht werden, „ambitioniert" ≤ 70 %, sonst „bisher nicht erreicht". Liegt Live über der Schwelle, zeigt der Block die Halten-Variante.
+
+**Bewusst nicht enthalten:** Krankheit (siehe oben), feste Umsatz-Faktoren, Stufenwege ab Stufe 4 als „realistische Kombination" (mit heutigem Preismix und Krankenstand bräuchte Stufe 5 rechnerisch über 100 % Auslastung).
 
 ---
 
@@ -388,6 +406,7 @@ Die neuen Werte sind methodisch sauberer, aber die alten gelten als Bewertungsgr
 
 | Datum | Änderung | Wer |
 |---|---|---|
+| 2026-08-18 | Aktionsblock statt Hebel-Block und „Konkrete Wege" (Zerlegung €/h, abgesagte nicht nachbesetzte Slots, eigene Historie), Krankheit komplett aus den Dashboards, Live-Vergleich gegen indexierte Schwelle — Details 6.1 | Valentin + Claude |
 | 2026-08-17 | Probezeit-Ende innerhalb des Quartals: Gehalt ab dem Folgetag des Probezeit-Endes auf reguläres Modell (Stufe aus dem zuletzt bewerteten Quartal, max. Stufe 2, plus Bundle-Zulage); Luise/Max ab 01.08.2026 — Details 5.4 | Valentin + Claude |
 | 2026-04-29 | Hebel-Block-Plausibilität (3-Stufen-Tags), PKV-Schwellen reduziert | Claude + Valentin |
 | 2026-05-15 | LI-Pfad entfernt, direkte €/h-Logik, Q-Live-Block eingeführt | Claude + Valentin |
