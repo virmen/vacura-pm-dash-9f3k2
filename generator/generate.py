@@ -20,7 +20,8 @@ OUT_DIR = os.environ.get('OUT_DIR') or os.path.expanduser('~/Code/Claude/Projekt
 # 30 min = 3 ZI = 56,93 · 45 min = 4 ZI = 75,91 · 60 min = 5 ZI = 94,89.
 # Ausnahmen: thermische Anwendung/KT/WT immer 8,51 €; Schiene 390 €; Integration 152,32 €;
 # Hausbesuchspauschale +27,56 (nach Faktor-Logik: NICHT ×Faktor).
-# PKV (verordnungstyp 2) ×2,0 · Selbstzahler (3) ×1,7 — empirisch kalibriert (Monatsumsatz-Report V3).
+# PKV (verordnungstyp 2) ×1,7 · Selbstzahler (3) ×1,7 (Valentin 08.09.2026: „beide 1,7", rückwirkend Q3;
+# vorher PKV ×2,0 seit 05.06.2026). Thermische Anwendung bei Selbstzahlern weiter ×2,0 (23.07.2026).
 # Wirkt auf IST (termin_umsatz) und den Hebel-Faktor (1 %-Pkt PKV ≈ (PKV_FAKTOR-1)*100 % Umsatz).
 ZI_PREIS = 18.98
 THERMISCH_PREIS = 8.51
@@ -40,8 +41,9 @@ def _ist_schiene(bez):
     """Ergo-Schienen-Termin? 'ergo' ist Pflicht-Marker, sonst matcht „nicht erschienen"."""
     b = str(bez or '').lower()
     return 'schiene' in b and 'ergo' in b and 'erschienen' not in b
-PKV_FAKTOR = 2.0
+PKV_FAKTOR = 1.7
 SZ_FAKTOR = 1.7
+THERMISCH_SZ_FAKTOR = 2.0   # thermische Anwendung: Selbstzahler zahlen den zweifachen Satz (Valentin 23.07.2026)
 HB_PAUSCHALE = 27.56
 # GKV-Schiedsspruch: +4,11 % auf alle Sätze für Behandlungen ab 01.07.2026
 ERHOEHUNG_AB = '2026-07-01'
@@ -93,7 +95,7 @@ def _ist_test_termin(t):
                for m in (t.get('mitarbeiter') or []))
 
 def _ist_thermisch(bez, bt):
-    """Thermische Anwendung / Kälte- / Wärmetherapie (Festpreis 8,51; PKV UND SZ ×2,0)."""
+    """Thermische Anwendung / Kälte- / Wärmetherapie (Festpreis 8,51; Selbstzahler ×2,0)."""
     return 'thermisch' in bez or 'kälte' in bez or 'wärme' in bez or bt in ('wt', 'kt', 'urb')
 
 def satz_faktor(iso_datum):
@@ -1917,7 +1919,7 @@ def _basis_preis(t, dauer):
 
 def termin_umsatz(t):
     """€-Umsatz eines Termins — Preisform des Monatsumsatz-Reports V3 (siehe _basis_preis).
-    PKV ×2,0, Selbstzahler ×1,7, Hausbesuch +27,56 € (Pauschale NICHT × Faktor —
+    PKV ×1,7, Selbstzahler ×1,7 (thermisch ×2,0), Hausbesuch +27,56 € (Pauschale NICHT × Faktor —
     Entscheidung 2026-06-03). +4,11 % ab 01.07.2026 (satz_faktor)."""
     from datetime import datetime as _dt
     try:
@@ -1937,7 +1939,7 @@ def termin_umsatz(t):
     elif t.get('verordnungstyp') == 3:
         # Thermische Anwendung kostet auch bei Selbstzahlern den ZWEIFACHEN Satz
         # (Valentin 23.07.2026) — sonst SZ-Faktor 1,7.
-        basis *= PKV_FAKTOR if _ist_thermisch(bez, bez.strip()) else SZ_FAKTOR
+        basis *= THERMISCH_SZ_FAKTOR if _ist_thermisch(bez, bez.strip()) else SZ_FAKTOR
     if t.get('is_hausbesuch'):
         basis += HB_PAUSCHALE * f
     return basis
@@ -2170,9 +2172,10 @@ def compute_quartal(pm, q_start, q_end, today=None):
             if mid and d and (mid not in letzter_erbracht or d > letzter_erbracht[mid]):
                 letzter_erbracht[mid] = d
     # ============================================================================
-    # NENNER = VERTRAGSSTUNDEN (Valentin 17.08.2026): je Werktag (Mo–Fr) im eff-Fenster
-    # 1/5 der Wochenstunden aus dem Feld StundenProWoche der am Tag gültigen Arbeitszeit-
-    # gruppe. Brutto, unabhängig von Abwesenheiten (die werden unten in Slot-Stunden
+    # NENNER = VERTRAGSSTUNDEN (Valentin 17.08.2026): je Werktag (Mo–Fr) im eff-Fenster die
+    # Tagesstunden der am Tag gültigen Arbeitszeitgruppe (_th_stunden_am_werktag; Valentin
+    # 08.09.2026 — vorher StundenProWoche/5, damit rechnen Nenner und Abzüge in derselben
+    # Einheit). Brutto, unabhängig von Abwesenheiten (die werden unten in Slot-Stunden
     # abgezogen). Kein auslastung_4w-Snapshot mehr (30-Tage-Fenster/4 = 0–10 % zu hoch,
     # wochentags- und zeitpunktabhängig, 35 Tage Schreibverzug). Über volle Wochen ist
     # StundenProWoche/5 je Werktag identisch mit Wochenstunden × Wochen; für Teilfenster
@@ -2220,7 +2223,7 @@ def compute_quartal(pm, q_start, q_end, today=None):
         day = eff_start
         while day <= eff_end:
             if day.weekday() < 5:
-                vstd_ber += _vertragsstunden_pro_woche(m, day) / 5
+                vstd_ber += _th_stunden_am_werktag(m, day)   # seit 08.09.2026: Tagesstunden der Arbeitszeitgruppe (vorher StundenProWoche/5)
             day += _td(days=1)
         bundle_h_pro_woche += _vertragsstunden_pro_woche(m, eff_end)
 
@@ -2275,6 +2278,22 @@ def compute_quartal(pm, q_start, q_end, today=None):
             if str(t.get('filiale') or '').lower() in bundle_standorte: continue
             arbeitsliste.append((t, schienen_th_id))
 
+    # Anwesenheitstage (Valentin 04.09.2026, in der Gehaltswelt seit 08.09.2026): geplante Termine und
+    # Reservierungen an Abwesenheitstagen des Therapeuten (alle Arten) zaehlen nicht.
+    abw_records = _fetch_all('mwcnx74etcl1frq')
+    abw_tage = {}
+    for a in abw_records:
+        if a.get('deleted_at') or a.get('mitarbeiter_id') not in th_ids: continue
+        try:
+            d0 = _date.fromisoformat(str(a.get('von') or '')[:10]); d1 = _date.fromisoformat(str(a.get('bis') or '')[:10])
+        except Exception: continue
+        s_ = abw_tage.setdefault(a['mitarbeiter_id'], set())
+        while d0 <= d1:
+            s_.add(d0.isoformat()); d0 += _td(days=1)
+    echte_iv = {}          # mid -> [(beginn, ende)] gezaehlter echter Termine (fuer freie Slots der Reservierungen)
+    termine_reserv = 0
+    termine_skip_abw = 0
+
     for t, mid in arbeitsliste:
         # Gelöschte Termine zählen, wenn sie als erbracht dokumentiert sind
         # (Entscheidung 22.07.2026): MediFox löscht beim Offboarding auch
@@ -2306,6 +2325,13 @@ def compute_quartal(pm, q_start, q_end, today=None):
             termine_skip_29d += 1
             continue
         if b > ee: continue
+        if ist_geplant and b.isoformat() in abw_tage.get(mid, ()):
+            termine_skip_abw += 1
+            continue
+        try:
+            from datetime import datetime as _dt2
+            echte_iv.setdefault(mid, []).append((_dt2.fromisoformat(t['beginn'].replace('Z', '+00:00')), _dt2.fromisoformat(t['ende'].replace('Z', '+00:00'))))
+        except Exception: pass
         if ist_geplant:
             u = termin_umsatz(t) * GEPLANT_FAKTOR
             ist += u; ist_geplant08 += u; termine_geplant += 1
@@ -2316,6 +2342,43 @@ def compute_quartal(pm, q_start, q_end, today=None):
             behandlung_h += _dauer_h(t)
             if t.get('verordnungstyp') in (2, 3): pkv_count += 1
 
+    # Reservierungen wie geplante Termine × GEPLANT_FAKTOR (Valentin 08.09.2026, rückwirkend Q3): nicht
+    # gelöschte Reservierungen (art=reserviert: „Reserviert" einzeln/als Serie, „Reservierung (Dauer-Serie)")
+    # und Dauer-Serientermin-Platzhalter (art=normal + Blocker), nur im eff-Fenster des Therapeuten, an
+    # Anwesenheits- UND Arbeitstagen, ohne echten Termin desselben Therapeuten im Slot. Preis nach Dauer
+    # (ZI), Kostentraeger unbekannt = Faktor 1. Standort = Filiale der Reservierung, sonst des Therapeuten.
+    # Gleiche Regel im PM-Wochenreport (€/h-Pfad) — Auslastungen/Monatsumsatz/Controlling analog.
+    from datetime import datetime as _dt3
+    res_where = f'(deleted_at,blank)~and(beginn,gte,exactDate,{iso_q_start})~and(beginn,lte,exactDate,{iso_eff_end})'
+    res_rows = (_fetch_all('mf2pw17nwfzlkd2', where='(art,eq,reserviert)~and' + res_where)
+                + _fetch_all('mf2pw17nwfzlkd2', where='(art,eq,normal)~and(is_blocker,eq,true)~and' + res_where))
+    for r in sorted(res_rows, key=lambda x: str(x.get('beginn') or '')):   # sortiert: ueberlappende Reservierungen desselben TH zaehlen einmal
+        if r.get('deleted_at'): continue
+        if not (r.get('art') == 'reserviert' or (r.get('art') == 'normal' and r.get('is_blocker')
+                and str(r.get('bezeichnung') or '').lower().startswith('dauer-serientermin'))): continue
+        if _ist_test_termin(r): continue
+        ml = r.get('mitarbeiter') or []
+        mid = ml[0].get('Id') if ml else None
+        if not mid or mid not in th_ids: continue
+        m_th = th_by_id[mid]
+        fil = str(r.get('filiale') or m_th.get('filiale') or ((m_th.get('filialen') or [''])[0]) or '').lower()
+        if fil not in bundle_standorte: continue
+        try:
+            b = _date.fromisoformat(r['beginn'][:10])
+            rb = _dt3.fromisoformat(r['beginn'].replace('Z', '+00:00')); re_ = _dt3.fromisoformat(r['ende'].replace('Z', '+00:00'))
+        except Exception: continue
+        if re_ <= rb: continue
+        es = th_eff_start.get(mid); ee = th_eff_end.get(mid)
+        if es is None or ee is None or b < es or b > ee: continue
+        if b.isoformat() in abw_tage.get(mid, ()): continue
+        if _th_stunden_am_werktag(m_th, b) <= 0: continue
+        if any(rb < ie and re_ > ib for ib, ie in echte_iv.get(mid, ())): continue
+        echte_iv.setdefault(mid, []).append((rb, re_))   # belegt den Slot fuer weitere Reservierungen
+        r_gkv = dict(r); r_gkv['verordnungstyp'] = 1; r_gkv['is_hausbesuch'] = False
+        u = termin_umsatz(r_gkv) * GEPLANT_FAKTOR
+        ist += u; ist_geplant08 += u; termine_reserv += 1
+        behandlung_h += _dauer_h(r) * GEPLANT_FAKTOR
+
     # VO-Gebühren sind seit 23.07.2026 NICHT mehr Teil des Bewertungs-IST (Stufe 1) —
     # sie zählen nur in den Umsatz-Reports (Monatsreport Variante C). Feld bleibt für
     # Abwärtskompatibilität/like-for-like-Diff erhalten.
@@ -2323,7 +2386,6 @@ def compute_quartal(pm, q_start, q_end, today=None):
 
     # Abw_ber: individuell pro Wochentag, eff_days-Range pro TH
     EXCLUDED_ARTS = {'krank', 'krankheit_kind', 'angefragt'}
-    abw_records = _fetch_all('mwcnx74etcl1frq')
     abw_ber = 0.0
     for a in abw_records:
         if a.get('deleted_at'): continue
@@ -2397,6 +2459,8 @@ def compute_quartal(pm, q_start, q_end, today=None):
         'tats_stufe': tats_stufe,     # mit ±1-Deckel + Probezeit-Override (bewertungsrelevant)
         'termine_count': termine_count,
         'termine_geplant': termine_geplant,
+        'termine_reserv': termine_reserv,          # seit 08.09.2026: Reservierungen × GEPLANT_FAKTOR (in ist_geplant08 enthalten)
+        'termine_skip_abw': termine_skip_abw,      # geplante an Abwesenheitstagen verworfen
         'termine_skip_29d': termine_skip_29d,
         'probezeit_aktiv': probezeit_aktiv,
         # seit 18.08.2026 (Aktionsblock): Behandlungszeit, PKV-Anteil, TH-Fenster

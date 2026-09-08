@@ -2,7 +2,7 @@
 
 Behandlung = (round(Dauer/15) + 1 VNB-ZI) × 18,98 € — für alle Therapiearten.
 Festpreis-Ausnahmen: thermisch/KT/WT 8,51 €, Gruppen, Analyse, Bericht.
-PKV ×2,0, Selbstzahler ×1,7, HB-Pauschale +27,56 (nach Faktor), +4,11 % ab 01.07.2026.
+PKV ×1,7, Selbstzahler ×1,7 (thermisch SZ ×2,0), HB-Pauschale +27,56 (nach Faktor), +4,11 % ab 01.07.2026.
 HB-Reihenfolge (×Faktor erst, dann +Pauschale): METHODE.md Abschnitt 3.2.4
 """
 import sys, os
@@ -70,13 +70,13 @@ def test_bericht_festpreis():
 
 def test_pkv_30min():
     """3 ZI × 2,0"""
-    assert abs(termin_umsatz(make_termin(30, verordnungstyp=2)) - 3 * ZI_PREIS * 2.0) < 0.01
+    assert abs(termin_umsatz(make_termin(30, verordnungstyp=2)) - 3 * ZI_PREIS * 1.7) < 0.01
 
 def test_selbstzahler_45min():
     sz = termin_umsatz(make_termin(45, verordnungstyp=3))
     pkv = termin_umsatz(make_termin(45, verordnungstyp=2))
     assert abs(sz - 4 * ZI_PREIS * 1.7) < 0.01
-    assert pkv > sz
+    assert abs(pkv - sz) < 0.01   # seit 08.09.2026 beide 1,7
 
 def test_bg_wie_gkv():
     assert termin_umsatz(make_termin(30, verordnungstyp=4)) == termin_umsatz(make_termin(30, verordnungstyp=1))
@@ -89,10 +89,10 @@ def test_hb_gkv_45min():
 
 def test_hb_pkv_45min():
     result = termin_umsatz(make_termin(45, verordnungstyp=2, is_hausbesuch=True))
-    assert abs(result - (4 * ZI_PREIS * 2.0 + 27.56)) < 0.01
+    assert abs(result - (4 * ZI_PREIS * 1.7 + 27.56)) < 0.01
 
 def test_hb_pkv_NICHT_pauschale_mal_faktor():
-    falsch = (4 * ZI_PREIS + 27.56) * 2.0
+    falsch = (4 * ZI_PREIS + 27.56) * 1.7
     assert termin_umsatz(make_termin(45, verordnungstyp=2, is_hausbesuch=True)) < falsch
 
 
@@ -117,7 +117,7 @@ def test_fehlende_zeitfelder():
     assert termin_umsatz({}) == 0.0
 
 def test_faktor_konstanten():
-    assert PKV_FAKTOR == 2.0
+    assert PKV_FAKTOR == 1.7
     assert SZ_FAKTOR == 1.7
 
 
@@ -175,15 +175,15 @@ def test_zi_anzahl_kaufmaennisch_gerundet():
     assert abs(termin_umsatz(t) - 4 * ZI_PREIS) < 0.01
 
 
-# === Thermisch: PKV UND Selbstzahler ×2,0 (Valentin 23.07.2026) ===
+# === Thermisch: Selbstzahler ×2,0 (Valentin 23.07.2026); PKV folgt dem PKV-Faktor (1,7 seit 08.09.2026) ===
 
 def test_thermisch_sz_zweifach():
     t = make_termin(30, verordnungstyp=3, bezeichnung='Thermische Anwendung, Kälte/Wärme')
     assert abs(termin_umsatz(t) - 8.51 * 2.0) < 0.01
 
-def test_thermisch_pkv_zweifach():
+def test_thermisch_pkv_faktor():
     t = make_termin(30, verordnungstyp=2, bezeichnung='Thermische Anwendung, Kälte/Wärme')
-    assert abs(termin_umsatz(t) - 8.51 * 2.0) < 0.01
+    assert abs(termin_umsatz(t) - 8.51 * 1.7) < 0.01
 
 def test_sz_faktor_sonst_unveraendert():
     assert abs(termin_umsatz(make_termin(45, verordnungstyp=3)) - 4 * ZI_PREIS * 1.7) < 0.01
