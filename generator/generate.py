@@ -1893,7 +1893,8 @@ def _basis_preis(t, dauer):
     bt = bez.strip()
     if _ist_thermisch(bez, bt):
         return THERMISCH_PREIS
-    if 'gruppe' in bez:
+    if 'umfangreicher bericht' in bez: return 0.0   # VO-Position ohne Therapeutenzeit: 0 € in der Gehaltswelt (Valentin 09.09.2026)
+    if 'gruppe' in bez or _re.search(r'\(bis zu \d', bez):   # auch der Katalog-Positionsname „… (bis zu 3 Patienten)" ist eine Gruppe (09.09.2026)
         if 'psychisch' in bez: return 46.50
         if 'sensomot' in bez: return 26.57
         if 'hlt' in bez or 'hirnleistung' in bez: return 26.57
@@ -2002,6 +2003,116 @@ def stufe_nach_probezeit(rechn_stufe, start_stufe=1):
     r = int(rechn_stufe or 0)
     if r <= 0: return 1
     return max(1, min(r, min(6, start_stufe + MAX_STUFEN_SPRUNG)))
+
+
+def _ist_sl(m):
+    """Standortleitung = Rollen Therapeut UND Verkauf (wie Auslastungs-Workflow und PM-Wochenreport)."""
+    r = [str(x).lower() for x in (m.get('rollen') or [])]
+    return 'therapeut' in r and 'verkauf' in r
+
+
+def _ist_parallel_position(t):
+    """Positionen, die neben einer Behandlung laufen (keine eigene Therapeutenzeit): passive Leistung,
+    thermische Anwendung, Funktionsanalyse, Bericht, Uebermittlung — wie istNichtIstZeit im PM-Wochenreport."""
+    if t.get('is_passive_leistung'): return True
+    bez = str(t.get('bezeichnung') or '').lower(); bt = bez.strip()
+    if _ist_thermisch(bez, bt): return True
+    if 'funktionsanalyse' in bez or 'analyse ergotherapeutischer' in bez: return True
+    if 'übermittlung' in bez or 'umfangreicher bericht' in bez: return True
+    return False
+
+
+def _termin_id(t):
+    return t.get('id') if t.get('id') is not None else (str(t.get('beginn')), str(t.get('ende')), str(t.get('patient_id')), str(t.get('bezeichnung')))
+
+
+def _verdraengte_erbrachte(arbeitsliste):
+    """Verdraengte erbrachte Termine (Valentin 09.09.2026; identisch verdraengteErbrachte im PM-Wochenreport,
+    Q-Start- und SL-Node). Eingabe: (Termin, Mitarbeiter-ID)-Paare. Rueckgabe: Set der Termin-IDs, die NICHT zaehlen.
+      (1) Zwilling: ein GELOESCHTER erbrachter Termin zaehlt nicht, wenn derselbe Therapeut fuer denselben Patienten
+          zur selben Beginn-Minute einen nicht geloeschten erbrachten Termin hat (MediFox-Korrektur: Termin nach der
+          Dokumentation neu angelegt; der Offboarding-Schutz zaehlte beide).
+      (2) Doppelbelegung: zwei erbrachte Termine desselben Therapeuten fuer denselben Patienten, die sich zeitlich
+          ueberlappen, zaehlen nur einmal — der spaeter beginnende (bei gleichem Beginn der kuerzere) entfaellt, wenn
+          mindestens die Haelfte seiner Dauer ueberlappt. Parallel-Positionen (thermisch, Funktionsanalyse, Bericht,
+          Uebermittlung) bleiben aussen vor, sie zaehlen im Umsatz bewusst neben der Behandlung. Verschiedene
+          Patienten parallel zaehlen weiterhin voll."""
+    from datetime import datetime as _dt
+    ERB = ('erbracht', 'erbracht_und_unterschrieben')
+    def rel(t): return t.get('art') == 'normal' and not t.get('is_blocker') and t.get('status') in ERB and not _ist_test_termin(t)
+    def key(t, mid): return (mid, str(t.get('patient_id') or ''), str(t.get('beginn') or '')[:16])
+    bestehend = {key(t, mid) for t, mid in arbeitsliste if mid and rel(t) and not t.get('deleted_at')}
+    out = set(); per_mp = {}
+    for t, mid in arbeitsliste:
+        if not mid or not rel(t): continue
+        try:
+            b = _dt.fromisoformat(str(t['beginn']).replace('Z', '+00:00')); e = _dt.fromisoformat(str(t['ende']).replace('Z', '+00:00'))
+        except Exception: continue
+        if e <= b: continue
+        if t.get('deleted_at') and t.get('patient_id') and key(t, mid) in bestehend:
+            out.add(_termin_id(t)); continue                                   # (1) Zwilling
+        if not t.get('patient_id') or _ist_parallel_position(t): continue
+        per_mp.setdefault((mid, t['patient_id']), []).append((b, e, _termin_id(t)))
+    for lst in per_mp.values():                                                # (2) Doppelbelegung
+        lst.sort(key=lambda x: (x[0], -(x[1] - x[0]).total_seconds(), str(x[2])))
+        kept = []
+        for b, e, i in lst:
+            ov = max([(min(e, ke) - max(b, kb)).total_seconds() for kb, ke, _ in kept] + [0.0])
+            if ov >= (e - b).total_seconds() / 2: out.add(i)
+            else: kept.append((b, e, i))
+    return out
+
+
+def _standort_slug(m):
+    f = str(m.get('filiale') or '')
+    if not f:
+        fl = m.get('filialen') or []
+        f = str(fl[0]) if fl else ''
+    return f.lower().replace(' ', '_')
+
+
+def _th_gruppe_wochenstunden(m, datum):
+    """Summe der Slot-Stunden der am Datum gueltigen Arbeitszeitgruppe (erste passende Gruppe, alle Wochentage) —
+    wie wochenStunden() im Auslastungs-Workflow/PM-Wochenreport (Basis der Leitungszeit-Staffel)."""
+    iso = datum.isoformat() if hasattr(datum, 'isoformat') else str(datum)[:10]
+    g = None
+    for x in (m.get('arbeitszeit_gruppen') or []):
+        ab = str(x.get('GueltigAb') or '')[:10]; bis = str(x.get('GueltigBis') or '')[:10]
+        if ab and ab <= iso and (not bis or bis >= iso): g = x; break
+    if not g: return 0.0
+    tot = 0.0
+    for az in g.get('Arbeitszeiten') or []:
+        st, en = az.get('Start'), az.get('Ende')
+        if st and en:
+            sh, sm = map(int, str(st).split(':')[:2]); eh, em = map(int, str(en).split(':')[:2])
+            tot += (eh * 60 + em - sh * 60 - sm) / 60
+    return tot
+
+
+LZ_TIERS = [(2, 0.08125), (4, 0.125), (6, 0.16875), (8, 0.20), (10**9, 0.225)]   # Leitungszeit-Staffel (SL-Modell, Auslastungs-Workflow)
+def _lz_pct(n_th):
+    for mx, p in LZ_TIERS:
+        if n_th <= mx: return p
+    return 0.225
+
+
+def _th_count_je_standort(ma, stichtag):
+    """Therapeut:innen je Standort-Slug am Stichtag ohne Standortleitungen, ab dem 29. Beschaeftigungstag
+    (Staffel der Leitungszeit; identisch thCountStandort im PM-Wochenreport)."""
+    from datetime import date as _date, timedelta as _td
+    cnt = {}
+    for m in ma:
+        if not m.get('is_active') or not m.get('is_therapeut') or _ist_sl(m): continue
+        if 'Online' in f"{m.get('vorname', '')} {m.get('nachname', '')}" or str(m.get('id') or '').startswith('4337e007'): continue
+        if _ist_testkonto(m.get('vorname'), m.get('nachname'), m.get('id')): continue
+        if _th_gruppe_wochenstunden(m, stichtag) <= 0: continue
+        v = _th_earliest_beschaeftigung(m)
+        if not v: continue
+        try: v_d = _date.fromisoformat(str(v)[:10])
+        except Exception: continue
+        if v_d > stichtag or v_d + _td(days=29) > stichtag: continue
+        s = _standort_slug(m); cnt[s] = cnt.get(s, 0) + 1
+    return cnt
 
 
 def _ist_bundle_therapeut(m):
@@ -2183,6 +2294,7 @@ def compute_quartal(pm, q_start, q_end, today=None):
     # ============================================================================
     bundle_h_pro_woche = 0.0
     vstd_ber = 0.0
+    vstd_th, abw_th, feier_th = {}, {}, {}   # je TH (Leitungszeit der Standortleitungen, 09.09.2026)
     th_eff_start = {}   # für IST/Abw/Feiertage-Filter
     th_eff_end = {}
     for m in bundle_th:
@@ -2223,7 +2335,8 @@ def compute_quartal(pm, q_start, q_end, today=None):
         day = eff_start
         while day <= eff_end:
             if day.weekday() < 5:
-                vstd_ber += _th_stunden_am_werktag(m, day)   # seit 08.09.2026: Tagesstunden der Arbeitszeitgruppe (vorher StundenProWoche/5)
+                _h = _th_stunden_am_werktag(m, day)   # seit 08.09.2026: Tagesstunden der Arbeitszeitgruppe (vorher StundenProWoche/5)
+                vstd_ber += _h; vstd_th[m['id']] = vstd_th.get(m['id'], 0.0) + _h
             day += _td(days=1)
         bundle_h_pro_woche += _vertragsstunden_pro_woche(m, eff_end)
 
@@ -2293,6 +2406,18 @@ def compute_quartal(pm, q_start, q_end, today=None):
     echte_iv = {}          # mid -> [(beginn, ende)] gezaehlter echter Termine (fuer freie Slots der Reservierungen)
     termine_reserv = 0
     termine_skip_abw = 0
+    termine_verdraengt = 0
+    verdraengt = _verdraengte_erbrachte(arbeitsliste)   # Zwillinge + Doppelbelegungen (Valentin 09.09.2026)
+    # Erbrachte Intervalle je TH (ohne verdraengte): ein geplanter Termin, der sich mit einem erbrachten Termin desselben
+    # Therapeuten ueberlappt, zaehlt nicht (Valentin 09.09.2026 — wie in der Auslastung; PM-Wochenreport identisch)
+    from datetime import datetime as _dt_iv
+    erb_iv = {}
+    for t, mid in arbeitsliste:
+        if not mid or t.get('status') not in ('erbracht', 'erbracht_und_unterschrieben') or t.get('art') != 'normal' or t.get('is_blocker'): continue
+        if _ist_test_termin(t) or _termin_id(t) in verdraengt: continue
+        try: erb_iv.setdefault(mid, []).append((_dt_iv.fromisoformat(t['beginn'].replace('Z', '+00:00')), _dt_iv.fromisoformat(t['ende'].replace('Z', '+00:00'))))
+        except Exception: pass
+    termine_skip_gep_overlap = 0
 
     for t, mid in arbeitsliste:
         # Gelöschte Termine zählen, wenn sie als erbracht dokumentiert sind
@@ -2325,9 +2450,19 @@ def compute_quartal(pm, q_start, q_end, today=None):
             termine_skip_29d += 1
             continue
         if b > ee: continue
+        if ist_erbracht and _termin_id(t) in verdraengt:   # Zwilling / Doppelbelegung (Valentin 09.09.2026)
+            termine_verdraengt += 1
+            continue
         if ist_geplant and b.isoformat() in abw_tage.get(mid, ()):
             termine_skip_abw += 1
             continue
+        if ist_geplant:
+            try:
+                gb = _dt_iv.fromisoformat(t['beginn'].replace('Z', '+00:00')); ge = _dt_iv.fromisoformat(t['ende'].replace('Z', '+00:00'))
+                if any(gb < ie and ge > ib for ib, ie in erb_iv.get(mid, ())):
+                    termine_skip_gep_overlap += 1
+                    continue
+            except Exception: pass
         try:
             from datetime import datetime as _dt2
             echte_iv.setdefault(mid, []).append((_dt2.fromisoformat(t['beginn'].replace('Z', '+00:00')), _dt2.fromisoformat(t['ende'].replace('Z', '+00:00'))))
@@ -2402,7 +2537,8 @@ def compute_quartal(pm, q_start, q_end, today=None):
         day = max(von, es); end_day = min(bis, ee)
         while day <= end_day:
             if day.weekday() < 5:
-                abw_ber += _th_stunden_am_werktag(m_th, day)
+                _h = _th_stunden_am_werktag(m_th, day)
+                abw_ber += _h; abw_th[mid] = abw_th.get(mid, 0.0) + _h
             day += _td(days=1)
 
     # Feiertage_ber: pro Werktag-Feiertag, eff_days-Range pro TH
@@ -2415,10 +2551,25 @@ def compute_quartal(pm, q_start, q_end, today=None):
                 es = th_eff_start.get(m['id']); ee = th_eff_end.get(m['id'])
                 if es is None or ee is None: continue
                 if day < es or day > ee: continue
-                feiertage_ber += _th_stunden_am_werktag(m, day)
+                _h = _th_stunden_am_werktag(m, day)
+                feiertage_ber += _h; feier_th[m['id']] = feier_th.get(m['id'], 0.0) + _h
         day += _td(days=1)
 
-    verfueg = vstd_ber - abw_ber - feiertage_ber
+    # Leitungszeit der Standortleitungen (Valentin 09.09.2026; Vertrag § 5 Nr. 3 „bei Standortleitungen zusaetzlich
+    # ihrer jeweiligen Leitungszeiten"): Staffel nach Zahl der Therapeut:innen am Standort (ohne SL, ab dem 29. Tag)
+    # wie Auslastungs-Workflow und PM-Wochenreport; Wochen-Leitungszeit auf Viertelstunden gerundet, anteilig an
+    # den verfuegbaren Stunden der SL im Fenster. Kalender-Blöcke „Leitung & Orga" lagen im Q3 bis auf 3 h daneben.
+    lz_ber = 0.0
+    n_th_standort = _th_count_je_standort(ma, effective_end)
+    for m in bundle_th:
+        if not _ist_sl(m): continue
+        verf_th = vstd_th.get(m['id'], 0.0) - abw_th.get(m['id'], 0.0) - feier_th.get(m['id'], 0.0)
+        if verf_th <= 0: continue
+        spw = _th_gruppe_wochenstunden(m, effective_end)
+        if spw <= 0: continue
+        lz_ber += verf_th * (round(spw * _lz_pct(n_th_standort.get(_standort_slug(m), 0)) * 4) / 4) / spw
+
+    verfueg = vstd_ber - abw_ber - feiertage_ber - lz_ber
     if verfueg <= 0:
         return None
     eur60 = ist / verfueg
@@ -2450,6 +2601,7 @@ def compute_quartal(pm, q_start, q_end, today=None):
         'vstd_ber': vstd_ber,
         'abw_ber': abw_ber,
         'feiertage_ber': feiertage_ber,
+        'lz_ber': lz_ber,                          # seit 09.09.2026: Leitungszeit der Standortleitungen (im Nenner abgezogen)
         'verfueg': verfueg,
         'ist': ist,
         'ist_geplant08': ist_geplant08,
@@ -2461,6 +2613,8 @@ def compute_quartal(pm, q_start, q_end, today=None):
         'termine_geplant': termine_geplant,
         'termine_reserv': termine_reserv,          # seit 08.09.2026: Reservierungen × GEPLANT_FAKTOR (in ist_geplant08 enthalten)
         'termine_skip_abw': termine_skip_abw,      # geplante an Abwesenheitstagen verworfen
+        'termine_verdraengt': termine_verdraengt,  # seit 09.09.2026: Zwillinge + Doppelbelegungen (zaehlen nicht)
+        'termine_skip_gep_overlap': termine_skip_gep_overlap,   # seit 09.09.2026: geplante im Slot eines erbrachten Termins (zaehlen nicht)
         'termine_skip_29d': termine_skip_29d,
         'probezeit_aktiv': probezeit_aktiv,
         # seit 18.08.2026 (Aktionsblock): Behandlungszeit, PKV-Anteil, TH-Fenster

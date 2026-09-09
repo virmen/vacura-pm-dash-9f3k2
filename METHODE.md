@@ -114,6 +114,10 @@ Pro Werktag im überschneidenden Range (eff_start ≤ Tag ≤ eff_end ∩ Abw.Vo
 - Wochentag-Codes als Bitmask: Mo=1, Di=2, Mi=4, Do=8, Fr=16
 - Mehrere Slots pro Tag (Vor-/Nachmittag) werden summiert
 
+#### 3.2.2a Leitungszeit_ber (seit 09.09.2026)
+
+Standortleitungen (Rollen Therapeut UND Verkauf) bekommen ihre Leitungszeit aus dem Nenner genommen — der Vertrag (§ 5 Nr. 3) sieht das ausdrücklich vor („bei Standortleitungen zusätzlich noch ihrer jeweiligen Leitungszeiten"). Bemessung wie im Auslastungs-Workflow und im SL-Modell: Staffel nach Zahl der Therapeut:innen am Standort ohne SL, ab dem 29. Beschäftigungstag, am Ende des Fensters (≤ 2 → 8,125 %, ≤ 4 → 12,5 %, ≤ 6 → 16,875 %, ≤ 8 → 20 %, darüber 22,5 % der Wochenstunden, auf Viertelstunden gerundet), anteilig an den verfügbaren Stunden der SL im Fenster (`_th_count_je_standort`, `_lz_pct`, `_th_gruppe_wochenstunden`). Q3 2026 bisher: Spandau/Mitte ~119 h, Friedrichshain/Charlottenburg/Prenzlauer Berg ~152 h (3,3–3,7 % des Nenners, +2,4 bis +2,5 €/h). Die Kalender-Blöcke „Leitung & Orga intern" der SL lagen im Q3 bis auf 3 h neben der Staffel (Janina Lohr 11 h). Doku-/Berichtszeit wird weiterhin NICHT abgezogen (Schwellen sind darauf kalibriert; Vertragswortlaut zur Klarstellung offen).
+
 #### 3.2.3 Feiertage_ber
 
 Aus Konstante `BERLIN_FEIERTAGE` (alle gesetzlichen Berliner Feiertage). Pro Werktag-Feiertag im eff_days-Range jedes TH werden die echten Slot-Stunden des TH an diesem Wochentag abgezogen.
@@ -129,6 +133,8 @@ Aus NocoDB-Tabelle `termine` mit folgenden Filtern (alle UND-verknüpft):
 - `is_passive_leistung` wird seit 17.08.2026 NICHT mehr ausgeschlossen (thermische Anwendungen/WT/KT zählen als Termin-Umsatz, 8,51 € × Faktor)
 - `status ∈ {'erbracht', 'erbracht_und_unterschrieben'}` zählen voll; **`status = 'geplant'` (noch nicht abgehakt, nicht gelöscht) zählt seit 17.08.2026 × 0,7** (`GEPLANT_FAKTOR`, Valentin, wie im PM-Wochenreport); gelöschte geplante = Absagen, zählen nicht
 - Termin-Datum im eff_days-Range der zuständigen TH (`mitarbeiter[0].Id`)
+- **Verdrängte erbrachte Termine zählen nicht (seit 09.09.2026, `_verdraengte_erbrachte`):** (1) Zwilling — ein gelöschter erbrachter Termin, zu dem derselbe Therapeut für denselben Patienten zur selben Beginn-Minute einen nicht gelöschten erbrachten Termin hat (MediFox-Korrektur nach der Dokumentation; der Offboarding-Schutz zählte beide). (2) Doppelbelegung — zweiter erbrachter Termin desselben Therapeuten für denselben Patienten, der sich mit einem früheren (bei gleichem Beginn längeren) mindestens zur Hälfte überlappt. Parallel-Positionen (thermisch, Funktionsanalyse, Bericht, Übermittlung) bleiben außen vor, verschiedene Patienten parallel zählen voll.
+- **Geplante Termine im Zeitfenster eines erbrachten Termins desselben Therapeuten zählen nicht (seit 09.09.2026)** — wie in der Auslastung.
 
 Pro Termin wird der Tarif berechnet über `termin_umsatz()`:
 
@@ -406,6 +412,7 @@ Die neuen Werte sind methodisch sauberer, aber die alten gelten als Bewertungsgr
 
 | Datum | Änderung | Wer |
 |---|---|---|
+| 2026-09-09 | Zwillinge und Doppelbelegungen gleicher Patient zählen einmal, geplante im Slot eines erbrachten nicht, Leitungszeit der SL im Nenner (Staffel), „Umfangreicher Bericht" 0 €, Gruppen-Positionsname = Gruppenpreis; Anna in PM-Stammdaten + Q2-Basiszeile — rückwirkend Q3 | Valentin + Claude |
 | 2026-08-18 | Aktionsblock statt Hebel-Block und „Konkrete Wege" (Zerlegung €/h, abgesagte nicht nachbesetzte Slots, eigene Historie), Krankheit komplett aus den Dashboards, Live-Vergleich gegen indexierte Schwelle — Details 6.1 | Valentin + Claude |
 | 2026-08-17 | Probezeit-Ende innerhalb des Quartals: Gehalt ab dem Folgetag des Probezeit-Endes auf reguläres Modell (Stufe aus dem zuletzt bewerteten Quartal, max. Stufe 2, plus Bundle-Zulage); Luise/Max ab 01.08.2026 — Details 5.4 | Valentin + Claude |
 | 2026-04-29 | Hebel-Block-Plausibilität (3-Stufen-Tags), PKV-Schwellen reduziert | Claude + Valentin |
@@ -477,3 +484,17 @@ hätten die Stufen-Messlatte um ~8–12 % verschoben — am 23.07. bewusst zurü
 
 Immer enthalten: gelöschte erbrachte Termine (Offboarding-Schutz). Inaktive THs zählen bis
 zum letzten erbrachten Termin (Deaktivierungs-Regel, symmetrisch Zähler+Nenner).
+
+
+## Änderung 08.09.2026 (Valentin, rückwirkend Q3 2026)
+- Versicherungsfaktoren: PKV ×1,7 wie Selbstzahler (vorher ×2,0 seit 05.06.2026); thermische Anwendung bei Selbstzahlern weiter ×2,0.
+- Nenner: je Werktag die Tagesstunden der am Tag gültigen Arbeitszeitgruppe (`_th_stunden_am_werktag`) statt StundenProWoche/5 — dieselbe Einheit wie Abwesenheits- und Feiertagsabzug.
+- Zähler: nicht gelöschte Reservierungen (Reserviert einzeln/als Serie, Reservierung (Dauer-Serie), Dauer-Serientermin) zählen × GEPLANT_FAKTOR wie geplante Termine: im eff-Fenster des Therapeuten, an Anwesenheits- und Arbeitstagen, ohne echten Termin im Slot, überlappende nur einmal; Preis nach Dauer, Faktor 1. Geplante Termine an Abwesenheitstagen zählen nicht (Regel 04.09.2026).
+- Gleiche Regeln im PM-Wochenreport `xD2Xp6nSiSuRUJZu`; Q-Start- und SL-Node übernehmen den PKV-Faktor. Paritäts-Gate: `pm_wochenreport/compare_generate.py`.
+
+## Änderung 09.09.2026 (Valentin, rückwirkend Q3 2026)
+- Zähler: verdrängte erbrachte Termine zählen nicht — Zwillinge (gelöschter erbrachter Termin mit bestehendem erbrachten Termin desselben Therapeuten/Patienten zur selben Beginn-Minute) und Doppelbelegungen (zwei erbrachte Termine desselben Therapeuten für denselben Patienten zur selben Zeit, der spätere entfällt ab 50 % Überlappung). Verschiedene Patienten parallel zählen weiter voll. Geplante Termine im Slot eines erbrachten Termins zählen nicht (wie Auslastung). `termine_verdraengt`, `termine_skip_gep_overlap`.
+- Nenner: Leitungszeit der Standortleitungen abgezogen (3.2.2a; `lz_ber`).
+- Preise: „Umfangreicher Bericht" 0 € (VO-Position), Katalog-Positionsname „… (bis zu 3 Patienten)" als Gruppe bepreist.
+- Zwillingsregel zusätzlich in Management-Wochenreport, Monatsumsatz und Controlling (Reporting-Welt); Doppelbelegung dort nur in den Ist-Stunden, nicht im Umsatz (abgerechnete Positionen).
+- Gleiche Regeln im PM-Wochenreport `xD2Xp6nSiSuRUJZu`, Q-Start- und SL-Node. Gates: `pm_wochenreport/compare_generate.py`, `tests/test_paket_0909.py`, `n8n_harness/compare.py`.
