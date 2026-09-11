@@ -2005,6 +2005,51 @@ def stufe_nach_probezeit(rechn_stufe, start_stufe=1):
     return max(1, min(r, min(6, start_stufe + MAX_STUFEN_SPRUNG)))
 
 
+# ===== Standort-Zuordnung mit Gewicht je Datum (Valentin 11.09.2026) =====================================
+# Charlottenburg wandert im September 2026 in das Bundle Spandau/Mitte: KW36 (31.08.–06.09.) und KW40 (28.09.–04.10.) zaehlen
+# in BEIDEN Bundles voll, KW37 bis KW39 nur bei Spandau/Mitte. Gilt fuer Zaehler und Nenner des €/h; Therapeutenzahl und
+# Anteile (Bundle-Zulage) bleiben unveraendert. Gleiche Tabelle im PM-Wochenreport und im Q-Start-Node.
+ZUORDNUNG_SONDER = [
+    {'standort': 'charlottenburg', 'von': '2026-08-31', 'bis': '2026-09-06', 'gewicht': {'spandau_mitte': 1.0, 'fh_cb_pb': 1.0}},
+    {'standort': 'charlottenburg', 'von': '2026-09-07', 'bis': '2026-09-27', 'gewicht': {'spandau_mitte': 1.0, 'fh_cb_pb': 0.0}},
+    {'standort': 'charlottenburg', 'von': '2026-09-28', 'bis': '2026-10-04', 'gewicht': {'spandau_mitte': 1.0, 'fh_cb_pb': 1.0}},
+]
+
+
+def _bundle_key(bundle_standorte):
+    return 'spandau_mitte' if 'spandau' in bundle_standorte or 'mitte' in bundle_standorte else 'fh_cb_pb'
+
+
+def _gewicht(bundle_key, bundle_standorte, standort_slug, iso):
+    """Anteil, mit dem der Standort am Tag iso im Bundle zaehlt (0, 1 oder Bruchteil)."""
+    st = str(standort_slug or '').lower()
+    for z in ZUORDNUNG_SONDER:
+        if z['standort'] == st and z['von'] <= iso <= z['bis']:
+            return z['gewicht'].get(bundle_key, 0.0)
+    return 1.0 if st in bundle_standorte else 0.0
+
+
+def _standorte_im_fenster(bundle_key, bundle_standorte, von_iso, bis_iso):
+    """Standort-Slugs mit Gewicht > 0 an mindestens einem Tag des Fensters (Heimat + Sonderzuordnung)."""
+    from datetime import date as _d, timedelta as _td
+    kand = list(bundle_standorte)
+    for z in ZUORDNUNG_SONDER:
+        if z['gewicht'].get(bundle_key, 0.0) > 0 and z['von'] <= bis_iso and z['bis'] >= von_iso and z['standort'] not in kand:
+            kand.append(z['standort'])
+    out = []
+    for st in kand:
+        d = _d.fromisoformat(von_iso); e = _d.fromisoformat(bis_iso); ok = False
+        while d <= e and not ok:
+            if _gewicht(bundle_key, bundle_standorte, st, d.isoformat()) > 0: ok = True
+            d += _td(days=1)
+        if ok: out.append(st)
+    return out
+
+
+def _th_slug(m):
+    return str(m.get('filiale') or ((m.get('filialen') or [''])[0]) or '').lower()
+
+
 def _ist_sl(m):
     """Standortleitung = Rollen Therapeut UND Verkauf (wie Auslastungs-Workflow und PM-Wochenreport)."""
     r = [str(x).lower() for x in (m.get('rollen') or [])]
@@ -2239,6 +2284,10 @@ def compute_quartal(pm, q_start, q_end, today=None):
     iso_29ago_end = (effective_end - _td(days=29)).isoformat()
 
     bundle_standorte = [s.strip().lower().replace(' ', '_') for s in pm['bundle_standorte'].split(',')]
+    bundle_key = _bundle_key(bundle_standorte)
+    # Standorte des Fensters inkl. Sonderzuordnung (11.09.2026); Gewicht je Tag ueber _gewicht()
+    standorte_fenster = _standorte_im_fenster(bundle_key, bundle_standorte, iso_q_start, iso_eff_end)
+    gew = lambda st, day: _gewicht(bundle_key, bundle_standorte, st, day.isoformat() if hasattr(day, 'isoformat') else str(day)[:10])
 
     # Probezeit-Check (PM-Vertrag § 8 Abs. 3) — gemeinsame Helper-Funktion
     probezeit_aktiv = is_probezeit(pm.get('startdatum'), q_end)
@@ -2259,8 +2308,8 @@ def compute_quartal(pm, q_start, q_end, today=None):
     bundle_th = [m for m in ma
                  if _ist_bundle_therapeut(m)
                  and 'Online' not in f"{m.get('vorname','')} {m.get('nachname','')}"
-                 and (any(f in bundle_standorte for f in (m.get('filialen') or []))
-                     or str(m.get('filiale') or '').lower() in bundle_standorte)  # filiale-Einzelfeld: Offboarding leert die filialen-Liste — ausgeschiedene THs zählen taggenau (Valentin 23.07.2026)
+                 and (any(f in standorte_fenster for f in (m.get('filialen') or []))
+                     or str(m.get('filiale') or '').lower() in standorte_fenster)  # filiale-Einzelfeld: Offboarding leert die filialen-Liste — ausgeschiedene THs zählen taggenau (Valentin 23.07.2026)
                  and _aktiv_im_q(m)
                  and _seit_29tage_vor_eff_end(m)]
     th_ids = {m['id'] for m in bundle_th}
@@ -2271,7 +2320,7 @@ def compute_quartal(pm, q_start, q_end, today=None):
     # Da kein Deaktivierungs-DATUM existiert, gilt für inaktive THs der letzte erbrachte
     # Termin als faktisches Arbeitsende — Stunden UND Umsatz enden dort (symmetrisch).
     letzter_erbracht = {}
-    for st in bundle_standorte:
+    for st in standorte_fenster:
         for t in _fetch_all('mf2pw17nwfzlkd2', where=f'(filiale,eq,{st})'):
             if t.get('art') != 'normal' or t.get('is_blocker'): continue
             if t.get('status') not in ('erbracht', 'erbracht_und_unterschrieben'): continue
@@ -2335,7 +2384,7 @@ def compute_quartal(pm, q_start, q_end, today=None):
         day = eff_start
         while day <= eff_end:
             if day.weekday() < 5:
-                _h = _th_stunden_am_werktag(m, day)   # seit 08.09.2026: Tagesstunden der Arbeitszeitgruppe (vorher StundenProWoche/5)
+                _h = _th_stunden_am_werktag(m, day) * gew(_th_slug(m), day)   # seit 08.09.2026: Tagesstunden der Arbeitszeitgruppe; seit 11.09. mit Standort-Gewicht
                 vstd_ber += _h; vstd_th[m['id']] = vstd_th.get(m['id'], 0.0) + _h
             day += _td(days=1)
         bundle_h_pro_woche += _vertragsstunden_pro_woche(m, eff_end)
@@ -2370,14 +2419,14 @@ def compute_quartal(pm, q_start, q_end, today=None):
     # Der Schienen-Therapeut wird über die GESAMTE MA-Liste gesucht, nicht über bundle_th:
     # findet man ihn nicht (Namensänderung, Austritt), bleibt der Pool aus und alles läuft
     # wie vorher — Schienen dürfen nicht still aus der Bewertung fallen.
-    hat_schienen_standort = SCHIENEN_STANDORT in bundle_standorte
+    hat_schienen_standort = SCHIENEN_STANDORT in standorte_fenster
     schienen_th_id = next((m['id'] for m in ma
                            if f"{m.get('vorname', '')} {m.get('nachname', '')}".strip().lower()
                            == SCHIENEN_THERAPEUT), None)
 
     # (Termin, Mitarbeiter-ID für die TH-Prüfung) — Schienen laufen über den Schienen-Therapeuten
     arbeitsliste = []
-    for st in bundle_standorte:
+    for st in standorte_fenster:
         for t in _fetch_all('mf2pw17nwfzlkd2', where=f'(filiale,eq,{st})'):
             ml = t.get('mitarbeiter') or []
             mid = ml[0].get('Id') if ml else None
@@ -2388,7 +2437,7 @@ def compute_quartal(pm, q_start, q_end, today=None):
     if hat_schienen_standort and schienen_th_id:
         for t in _fetch_all('mf2pw17nwfzlkd2', where='(bezeichnung,like,%chiene%)'):
             if not _ist_schiene(t.get('bezeichnung')): continue
-            if str(t.get('filiale') or '').lower() in bundle_standorte: continue
+            if str(t.get('filiale') or '').lower() in standorte_fenster: continue
             arbeitsliste.append((t, schienen_th_id))
 
     # Anwesenheitstage (Valentin 04.09.2026, in der Gehaltswelt seit 08.09.2026): geplante Termine und
@@ -2467,14 +2516,17 @@ def compute_quartal(pm, q_start, q_end, today=None):
             from datetime import datetime as _dt2
             echte_iv.setdefault(mid, []).append((_dt2.fromisoformat(t['beginn'].replace('Z', '+00:00')), _dt2.fromisoformat(t['ende'].replace('Z', '+00:00'))))
         except Exception: pass
+        # Standort-Gewicht am Termintag (Sonderzuordnung 11.09.2026); Schienen laufen ueber den Schienen-Standort
+        g_t = gew(SCHIENEN_STANDORT if (schienen_th_id and mid == schienen_th_id and _ist_schiene(t.get('bezeichnung'))) else str(t.get('filiale') or '').lower(), b)
+        if g_t <= 0: continue
         if ist_geplant:
-            u = termin_umsatz(t) * GEPLANT_FAKTOR
+            u = termin_umsatz(t) * GEPLANT_FAKTOR * g_t
             ist += u; ist_geplant08 += u; termine_geplant += 1
-            behandlung_h += _dauer_h(t) * GEPLANT_FAKTOR
+            behandlung_h += _dauer_h(t) * GEPLANT_FAKTOR * g_t
         else:
-            ist += termin_umsatz(t)
+            ist += termin_umsatz(t) * g_t
             termine_count += 1
-            behandlung_h += _dauer_h(t)
+            behandlung_h += _dauer_h(t) * g_t
             if t.get('verordnungstyp') in (2, 3): pkv_count += 1
 
     # Reservierungen wie geplante Termine × GEPLANT_FAKTOR (Valentin 08.09.2026, rückwirkend Q3): nicht
@@ -2497,7 +2549,7 @@ def compute_quartal(pm, q_start, q_end, today=None):
         if not mid or mid not in th_ids: continue
         m_th = th_by_id[mid]
         fil = str(r.get('filiale') or m_th.get('filiale') or ((m_th.get('filialen') or [''])[0]) or '').lower()
-        if fil not in bundle_standorte: continue
+        if fil not in standorte_fenster: continue
         try:
             b = _date.fromisoformat(r['beginn'][:10])
             rb = _dt3.fromisoformat(r['beginn'].replace('Z', '+00:00')); re_ = _dt3.fromisoformat(r['ende'].replace('Z', '+00:00'))
@@ -2509,10 +2561,12 @@ def compute_quartal(pm, q_start, q_end, today=None):
         if _th_stunden_am_werktag(m_th, b) <= 0: continue
         if any(rb < ie and re_ > ib for ib, ie in echte_iv.get(mid, ())): continue
         echte_iv.setdefault(mid, []).append((rb, re_))   # belegt den Slot fuer weitere Reservierungen
+        g_r = gew(fil, b)
+        if g_r <= 0: continue
         r_gkv = dict(r); r_gkv['verordnungstyp'] = 1; r_gkv['is_hausbesuch'] = False
-        u = termin_umsatz(r_gkv) * GEPLANT_FAKTOR
+        u = termin_umsatz(r_gkv) * GEPLANT_FAKTOR * g_r
         ist += u; ist_geplant08 += u; termine_reserv += 1
-        behandlung_h += _dauer_h(r) * GEPLANT_FAKTOR
+        behandlung_h += _dauer_h(r) * GEPLANT_FAKTOR * g_r
 
     # VO-Gebühren sind seit 23.07.2026 NICHT mehr Teil des Bewertungs-IST (Stufe 1) —
     # sie zählen nur in den Umsatz-Reports (Monatsreport Variante C). Feld bleibt für
@@ -2537,7 +2591,7 @@ def compute_quartal(pm, q_start, q_end, today=None):
         day = max(von, es); end_day = min(bis, ee)
         while day <= end_day:
             if day.weekday() < 5:
-                _h = _th_stunden_am_werktag(m_th, day)
+                _h = _th_stunden_am_werktag(m_th, day) * gew(_th_slug(m_th), day)
                 abw_ber += _h; abw_th[mid] = abw_th.get(mid, 0.0) + _h
             day += _td(days=1)
 
@@ -2551,7 +2605,7 @@ def compute_quartal(pm, q_start, q_end, today=None):
                 es = th_eff_start.get(m['id']); ee = th_eff_end.get(m['id'])
                 if es is None or ee is None: continue
                 if day < es or day > ee: continue
-                _h = _th_stunden_am_werktag(m, day)
+                _h = _th_stunden_am_werktag(m, day) * gew(_th_slug(m), day)
                 feiertage_ber += _h; feier_th[m['id']] = feier_th.get(m['id'], 0.0) + _h
         day += _td(days=1)
 

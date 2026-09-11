@@ -498,3 +498,8 @@ zum letzten erbrachten Termin (Deaktivierungs-Regel, symmetrisch Zähler+Nenner)
 - Preise: „Umfangreicher Bericht" 0 € (VO-Position), Katalog-Positionsname „… (bis zu 3 Patienten)" als Gruppe bepreist.
 - Zwillingsregel zusätzlich in Management-Wochenreport, Monatsumsatz und Controlling (Reporting-Welt); Doppelbelegung dort nur in den Ist-Stunden, nicht im Umsatz (abgerechnete Positionen).
 - Gleiche Regeln im PM-Wochenreport `xD2Xp6nSiSuRUJZu`, Q-Start- und SL-Node. Gates: `pm_wochenreport/compare_generate.py`, `tests/test_paket_0909.py`, `n8n_harness/compare.py`.
+
+## Änderung 11.09.2026 (Valentin): Standort-Zuordnung mit Datum
+- `ZUORDNUNG_SONDER`, `_gewicht()`, `_standorte_im_fenster()`: Charlottenburg wandert im September 2026 in das Bundle Spandau/Mitte — KW36 (31.08.–06.09.) und KW40 (28.09.–04.10.) zählen in BEIDEN Bundles voll, KW37 bis KW39 nur bei Spandau/Mitte. In `compute_quartal()` wirkt das Gewicht je Tag auf Vstd/Abw/Feiertage (Nenner) und je Termin/Reservierung auf den Zähler; der Therapeutenkreis umfasst alle Standorte mit Gewicht im Fenster.
+- Nicht betroffen: Bundle-Zulage/Anteile (`bundle_zulage_std_taggenau`), Leitungszeit-Staffel, Live-Auslastung aus `auslastung_4w`. Gleiche Tabelle im PM-Wochenreport und Q-Start-Node. Gate: `pm_wochenreport/compare_generate.py`.
+
