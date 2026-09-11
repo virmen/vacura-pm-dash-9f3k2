@@ -138,9 +138,11 @@ def test_q2_luise_max_nach_probezeit_stichtag(excel_wb, pms_config):
         assert pm_reg['gehalt_ab'] == date(2026, 8, 1)
         assert pm_reg['rechn_stufe'] == 2 and pm_reg['tats_stufe'] == 2
         assert pm_reg['monatsgehalt'] > pm_pz['monatsgehalt']
-        # festgezurrt beim Q2-Lauf (Spalte Probezeit): Luise 10 Anteile → 4.042, Max 6 → 2.900
+        # festgezurrt beim Q2-Lauf (Spalte Probezeit): Luise 10 Anteile → 4.042, Max 6 Anteile → 2.900 bei 30 h;
+        # seit 10.09.2026 steht Max mit 40 h (ab 01.09.) in den PM-Stammdaten → Sockel 40.000 → 3.867 (das Excel hat keine
+        # Stundenhistorie, der Stichtag 17.08. rechnet deshalb mit den heutigen 40 h).
         assert pm_reg['festgezurrt'] and pm_reg['festgezurrt']['teamstand'] == date(2026, 7, 23)
-        assert pm_reg['monatsgehalt'] == {'Luise': 4042, 'Max': 2900}[name]
+        assert pm_reg['monatsgehalt'] == {'Luise': 4042, 'Max': 3867}[name]
         assert pm_reg['th_pm'] == {'Luise': 10, 'Max': 6}[name]
 
 def test_q2_laura_stichtag_ohne_effekt(excel_wb, pms_config):
