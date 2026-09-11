@@ -2255,6 +2255,74 @@ def _th_stunden_am_werktag(m, datum):
             except Exception: continue
     return total
 
+def _th_az_slots(m, datum):
+    """Arbeitszeit-Slots [(start_min, ende_min)] des TH am Tag — gleiche Gültigkeitslogik wie _th_stunden_am_werktag."""
+    if datum.weekday() >= 5: return []
+    bitmask = 1 << datum.weekday()
+    iso = datum.isoformat()
+    out = []
+    for g in (m.get('arbeitszeit_gruppen') or []):
+        g_von = g.get('GueltigAb'); g_bis = g.get('GueltigBis')
+        if g_von and g_von > iso: continue
+        if g_bis and g_bis < iso: continue
+        for s in (g.get('Arbeitszeiten') or []):
+            if s.get('Wochentag') != bitmask: continue
+            if s.get('GueltigAb') and s['GueltigAb'] > iso: continue
+            try:
+                sh, sm = s['Start'].split(':')[:2]; eh, em = s['Ende'].split(':')[:2]
+                out.append((int(sh) * 60 + int(sm), int(eh) * 60 + int(em)))
+            except Exception: continue
+    return sorted(out)
+
+
+def _teamevent_rows():
+    """Teamevent-Blöcke aus NocoDB: art=intern, Bezeichnung enthält "eamevent" (like ist case-sensitiv, %25 = URL-kodiertes %)."""
+    return _fetch_all('mf2pw17nwfzlkd2', where='(art,eq,intern)~and(bezeichnung,like,%25eamevent%25)')
+
+
+def _team_index(rows):
+    """mitarbeiter_id -> { tag_iso (Berliner Ortstag) -> [(a_min, b_min)] } der nicht gelöschten Teamevent-Blöcke."""
+    from datetime import datetime as _dtt, timezone as _tz
+    from zoneinfo import ZoneInfo as _ZI
+    ber = _ZI('Europe/Berlin')
+    idx = {}
+    for t in rows:
+        if t.get('deleted_at'): continue
+        if 'teamevent' not in str(t.get('bezeichnung') or '').lower(): continue
+        try:
+            b = _dtt.fromisoformat(str(t['beginn']).replace('Z', '+00:00'))
+            e = _dtt.fromisoformat(str(t['ende']).replace('Z', '+00:00'))
+        except Exception: continue
+        if b.tzinfo is None: b = b.replace(tzinfo=_tz.utc)
+        if e.tzinfo is None: e = e.replace(tzinfo=_tz.utc)
+        bl = b.astimezone(ber); el = e.astimezone(ber)
+        tag = bl.date().isoformat()
+        a = bl.hour * 60 + bl.minute
+        z = el.hour * 60 + el.minute if el.date() == bl.date() else 24 * 60
+        if z <= a: continue
+        for ma in (t.get('mitarbeiter') or []):
+            mid = (ma or {}).get('Id')
+            if mid: idx.setdefault(mid, {}).setdefault(tag, []).append((a, z))
+    return idx
+
+
+def _iv_union(iv):
+    out = []
+    for a, b in sorted(iv):
+        if out and a <= out[-1][1]: out[-1] = (out[-1][0], max(out[-1][1], b))
+        else: out.append((a, b))
+    return out
+
+
+def _iv_clip(iv, slots):
+    return sum(max(0, min(b, e) - max(a, s)) for a, b in iv for s, e in slots)
+
+
+def _team_stunden_tag(m, datum, bloecke):
+    """Teil der Teamevent-Blöcke (Minuten Ortszeit) innerhalb der Arbeitszeit-Slots des Tages, in Stunden."""
+    return _iv_clip(_iv_union(bloecke), _th_az_slots(m, datum)) / 60
+
+
 def compute_quartal(pm, q_start, q_end, today=None):
     """Berechnet IST/Vstd/Abw/Feiertage/verfueg/eur60 für ein beliebiges Quartalsfenster.
 
@@ -2609,21 +2677,39 @@ def compute_quartal(pm, q_start, q_end, today=None):
                 feiertage_ber += _h; feier_th[m['id']] = feier_th.get(m['id'], 0.0) + _h
         day += _td(days=1)
 
+    # Teamevent-Blöcke (Valentin: Einmalregel KW36 am 09.09.2026, Dauerregel seit 11.09.2026; PM-Wochenreport identisch):
+    # interne Termine "Block Teamevent intern:" / "Teamevent" nehmen dem TH den Teil des Blocks, der innerhalb seiner
+    # Arbeitszeit des Tages liegt (Berliner Ortszeit, Vereinigung mehrerer Blöcke), aus dem Nenner — im eff-Fenster,
+    # nicht an Abwesenheits-/Feiertagen, mit Standort-Gewicht.
+    team_ber = 0.0
+    team_th = {}
+    _tidx = _team_index(_teamevent_rows())
+    for m in bundle_th:
+        es = th_eff_start.get(m['id']); ee = th_eff_end.get(m['id'])
+        if es is None or ee is None: continue
+        for tag_iso, bloecke in _tidx.get(m['id'], {}).items():
+            tag = _date.fromisoformat(tag_iso)
+            if tag < es or tag > ee: continue
+            if tag_iso in abw_tage.get(m['id'], ()) or tag_iso in BERLIN_FEIERTAGE: continue
+            _h = _team_stunden_tag(m, tag, bloecke) * gew(_th_slug(m), tag)
+            team_ber += _h; team_th[m['id']] = team_th.get(m['id'], 0.0) + _h
+
     # Leitungszeit der Standortleitungen (Valentin 09.09.2026; Vertrag § 5 Nr. 3 „bei Standortleitungen zusaetzlich
     # ihrer jeweiligen Leitungszeiten"): Staffel nach Zahl der Therapeut:innen am Standort (ohne SL, ab dem 29. Tag)
     # wie Auslastungs-Workflow und PM-Wochenreport; Wochen-Leitungszeit auf Viertelstunden gerundet, anteilig an
-    # den verfuegbaren Stunden der SL im Fenster. Kalender-Blöcke „Leitung & Orga" lagen im Q3 bis auf 3 h daneben.
+    # den verfuegbaren Stunden der SL im Fenster (seit 11.09.2026 ohne Teamevent-Anteil). Kalender-Blöcke „Leitung & Orga"
+    # lagen im Q3 bis auf 3 h daneben.
     lz_ber = 0.0
     n_th_standort = _th_count_je_standort(ma, effective_end)
     for m in bundle_th:
         if not _ist_sl(m): continue
-        verf_th = vstd_th.get(m['id'], 0.0) - abw_th.get(m['id'], 0.0) - feier_th.get(m['id'], 0.0)
+        verf_th = vstd_th.get(m['id'], 0.0) - abw_th.get(m['id'], 0.0) - feier_th.get(m['id'], 0.0) - team_th.get(m['id'], 0.0)
         if verf_th <= 0: continue
         spw = _th_gruppe_wochenstunden(m, effective_end)
         if spw <= 0: continue
         lz_ber += verf_th * (round(spw * _lz_pct(n_th_standort.get(_standort_slug(m), 0)) * 4) / 4) / spw
 
-    verfueg = vstd_ber - abw_ber - feiertage_ber - lz_ber
+    verfueg = vstd_ber - abw_ber - feiertage_ber - lz_ber - team_ber
     if verfueg <= 0:
         return None
     eur60 = ist / verfueg
@@ -2656,6 +2742,7 @@ def compute_quartal(pm, q_start, q_end, today=None):
         'abw_ber': abw_ber,
         'feiertage_ber': feiertage_ber,
         'lz_ber': lz_ber,                          # seit 09.09.2026: Leitungszeit der Standortleitungen (im Nenner abgezogen)
+        'team_ber': team_ber,                      # seit 11.09.2026: Teamevent innerhalb der Arbeitszeit (im Nenner abgezogen)
         'verfueg': verfueg,
         'ist': ist,
         'ist_geplant08': ist_geplant08,
@@ -2712,6 +2799,8 @@ def compute_live_quartalsstand(pm, today=None):
         'abw_h_stabilisiert': result['vstd_ber'] * q1_abw_quote,
         'abw_h_gemessen': result['abw_ber'],
         'feiertage_h_gemessen': result['feiertage_ber'],
+        'lz_h_gemessen': result['lz_ber'],
+        'team_h_gemessen': result['team_ber'],
         'q1_abw_quote': q1_abw_quote,
         'bundle_h_pro_woche': result['bundle_h_pro_woche'],
         'wochen_q_bisher': result['wochen'],

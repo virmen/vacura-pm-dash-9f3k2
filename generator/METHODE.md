@@ -412,6 +412,7 @@ Die neuen Werte sind methodisch sauberer, aber die alten gelten als Bewertungsgr
 
 | Datum | Änderung | Wer |
 |---|---|---|
+| 2026-09-11 | Teamevent-Blöcke innerhalb der Arbeitszeit im Nenner (Dauerregel, `team_ber`); Standort-Zuordnung mit Datum (Charlottenburg → Spandau/Mitte im September) | Valentin + Claude |
 | 2026-09-09 | Zwillinge und Doppelbelegungen gleicher Patient zählen einmal, geplante im Slot eines erbrachten nicht, Leitungszeit der SL im Nenner (Staffel), „Umfangreicher Bericht" 0 €, Gruppen-Positionsname = Gruppenpreis; Anna in PM-Stammdaten + Q2-Basiszeile — rückwirkend Q3 | Valentin + Claude |
 | 2026-08-18 | Aktionsblock statt Hebel-Block und „Konkrete Wege" (Zerlegung €/h, abgesagte nicht nachbesetzte Slots, eigene Historie), Krankheit komplett aus den Dashboards, Live-Vergleich gegen indexierte Schwelle — Details 6.1 | Valentin + Claude |
 | 2026-08-17 | Probezeit-Ende innerhalb des Quartals: Gehalt ab dem Folgetag des Probezeit-Endes auf reguläres Modell (Stufe aus dem zuletzt bewerteten Quartal, max. Stufe 2, plus Bundle-Zulage); Luise/Max ab 01.08.2026 — Details 5.4 | Valentin + Claude |
@@ -498,6 +499,10 @@ zum letzten erbrachten Termin (Deaktivierungs-Regel, symmetrisch Zähler+Nenner)
 - Preise: „Umfangreicher Bericht" 0 € (VO-Position), Katalog-Positionsname „… (bis zu 3 Patienten)" als Gruppe bepreist.
 - Zwillingsregel zusätzlich in Management-Wochenreport, Monatsumsatz und Controlling (Reporting-Welt); Doppelbelegung dort nur in den Ist-Stunden, nicht im Umsatz (abgerechnete Positionen).
 - Gleiche Regeln im PM-Wochenreport `xD2Xp6nSiSuRUJZu`, Q-Start- und SL-Node. Gates: `pm_wochenreport/compare_generate.py`, `tests/test_paket_0909.py`, `n8n_harness/compare.py`.
+
+## Änderung 11.09.2026 (Valentin): Teamevent als Dauerregel
+- Nenner: interne Kalenderblöcke „Block Teamevent intern:“/„Teamevent“ (NocoDB termine, art=intern, `_teamevent_rows`) nehmen dem TH den Teil des Blocks, der innerhalb seiner Arbeitszeit des Tages liegt (Berliner Ortszeit, Vereinigung mehrerer Blöcke; `_team_index`, `_team_stunden_tag`, `_th_az_slots`), aus dem Nenner — im eff-Fenster, nicht an Abwesenheits-/Feiertagen, mit Standort-Gewicht (`team_ber`). Leitungszeit der SL anteilig auf die Zeit ohne Teamevent.
+- Bisher Einmalregel für die KW36 (03.09.2026: Spandau/Mitte 18,8 h, FH/CB/PB 34,5 h), jetzt dauerhaft; Q3 bisher +0,4 bzw. +0,5 €/h. Identisch im PM-Wochenreport (`Get Teamevent`) und in der Auslastung des Management-Wochenreports. Gate: `pm_wochenreport/compare_generate.py` (Felder `lz`, `team`). Tests: `tests/test_teamevent.py`.
 
 ## Änderung 11.09.2026 (Valentin): Standort-Zuordnung mit Datum
 - `ZUORDNUNG_SONDER`, `_gewicht()`, `_standorte_im_fenster()`: Charlottenburg wandert im September 2026 in das Bundle Spandau/Mitte — KW36 (31.08.–06.09.) und KW40 (28.09.–04.10.) zählen in BEIDEN Bundles voll, KW37 bis KW39 nur bei Spandau/Mitte. In `compute_quartal()` wirkt das Gewicht je Tag auf Vstd/Abw/Feiertage (Nenner) und je Termin/Reservierung auf den Zähler; der Therapeutenkreis umfasst alle Standorte mit Gewicht im Fenster.
