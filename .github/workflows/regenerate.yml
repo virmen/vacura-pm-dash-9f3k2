@@ -29,6 +29,7 @@ jobs:
       - name: Generate dashboards
         env:
           NOCODB_TOKEN: ${{ secrets.NOCODB_TOKEN }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}   # Ueberstunden aus der Mitarbeiter-App (23.09.2026); fehlt das Secret, rechnet der Generator ohne die Regel
           EXCEL_PATH: ${{ github.workspace }}/generator/PM_Gehaltsmodell.xlsx
           OUT_DIR: ${{ github.workspace }}
         run: python3 generator/generate.py

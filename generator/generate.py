@@ -2323,6 +2323,85 @@ def _team_stunden_tag(m, datum, bloecke):
     return _iv_clip(_iv_union(bloecke), _th_az_slots(m, datum)) / 60
 
 
+# ============================================================================
+# Ueberstunden aus der Mitarbeiter-App (Valentin 23.09.2026; PM-Wochenreport identisch)
+# Quelle: Supabase Edge Function get-overtime-for-reports (anon key SUPABASE_ANON_KEY aus ~/.claude/.env),
+# fuer Tests/Harness OVERTIME_JSON=<datei> mit { "therapie": {...}, "ausgleich": {...} }. Schluessel "<medifox_id>_<YYYY-MM-DD>".
+# Regel: Nenner += je Tag min(Antragsminuten offen+genehmigt (nur Therapie), erbrachte Behandlung AUSSERHALB der verfuegbaren
+# Zeit) 1:1; Nenner −= Freizeitausgleich, soweit MediFox ihn nicht schon als Abwesenheit abzieht. Verfuegbare Zeit = Arbeitszeit-
+# Slots des Tages (Ortszeit), an Abwesenheits-/Feiertagen null. Stichtag OT_AB; fehlen die Daten, wirkt die Regel nicht (0).
+# ============================================================================
+OT_AB = '2026-07-01'
+_OT_CACHE = {}
+
+
+def _overtime_data(start_iso, end_iso):
+    key = f'{start_iso}|{end_iso}'
+    if key in _OT_CACHE:
+        return _OT_CACHE[key]
+    out = {'therapie': {}, 'ausgleich': {}}
+    p = _os.environ.get('OVERTIME_JSON')
+    if p:
+        try:
+            j = json.load(open(p))
+            out = {'therapie': j.get('therapie') or {}, 'ausgleich': j.get('ausgleich') or {}}
+        except Exception as e:
+            print(f'WARN: OVERTIME_JSON nicht lesbar ({e}) — Ueberstunden-Regel wirkt nicht')
+    else:
+        anon = _env().get('SUPABASE_ANON_KEY')
+        if not anon:
+            print('WARN: SUPABASE_ANON_KEY fehlt in ~/.claude/.env — Ueberstunden-Regel wirkt nicht')
+        else:
+            cfg = tempfile.NamedTemporaryFile(mode='w', suffix='.conf', delete=False)
+            cfg.write(f'header = "apikey: {anon}"\nheader = "Authorization: Bearer {anon}"\nheader = "Content-Type: application/json"\n')
+            cfg.close(); _os.chmod(cfg.name, 0o600)
+            try:
+                body = json.dumps({'start_date': start_iso, 'end_date': end_iso})
+                r = subprocess.run(['curl', '-sS', '--max-time', '90', '-K', cfg.name, '-X', 'POST', '--data', body,
+                                    'https://app.vacura-praxis.de/api/functions/v1/get-overtime-for-reports'],
+                                   capture_output=True, text=True, timeout=120)
+                j = json.loads(r.stdout)
+                if 'therapie' not in j:
+                    raise RuntimeError(str(j)[:200])
+                out = {'therapie': j.get('therapie') or {}, 'ausgleich': j.get('ausgleich') or {}}
+            except Exception as e:
+                print(f'WARN: get-overtime-for-reports nicht erreichbar ({str(e)[:200]}) — Ueberstunden-Regel wirkt nicht')
+            finally:
+                _os.unlink(cfg.name)
+    _OT_CACHE[key] = out
+    return out
+
+
+def _ot_min(mp, mid, tag_iso):
+    """Beantragte Minuten (offen + genehmigt) eines TH an einem Tag; 0 vor dem Stichtag."""
+    if not tag_iso or tag_iso < OT_AB:
+        return 0
+    return sum(max(0, int(e.get('minutes') or 0)) for e in (mp or {}).get(f'{mid}_{tag_iso}', []))
+
+
+def _ot_ausserhalb_je_tag(m, ivs, abw_days, von_iso, bis_iso):
+    """{tag_iso: Minuten} erbrachter Behandlung ausserhalb der verfuegbaren Zeit; ivs = [(beginn, ende)] tz-bewusste datetimes.
+    An Abwesenheits- (alle Arten) und Feiertagen zaehlt die ganze Dauer, sonst der Teil ausserhalb der Arbeitszeit-Slots."""
+    from datetime import date as _date, timezone as _tz
+    from zoneinfo import ZoneInfo as _ZI
+    ber = _ZI('Europe/Berlin')
+    out = {}
+    for b, e in ivs:
+        if b.tzinfo is None: b = b.replace(tzinfo=_tz.utc)
+        if e.tzinfo is None: e = e.replace(tzinfo=_tz.utc)
+        if e <= b: continue
+        bl = b.astimezone(ber); el = e.astimezone(ber)
+        tag = bl.date().isoformat()
+        if tag < von_iso or tag > bis_iso or tag < OT_AB: continue
+        a = bl.hour * 60 + bl.minute
+        z = el.hour * 60 + el.minute if el.date() == bl.date() else 24 * 60
+        if z <= a: continue
+        slots = [] if (tag in abw_days or tag in BERLIN_FEIERTAGE) else _th_az_slots(m, _date.fromisoformat(tag))
+        ausser = max(0, (z - a) - _iv_clip([(a, z)], slots))
+        if ausser > 0: out[tag] = out.get(tag, 0) + ausser
+    return out
+
+
 def compute_quartal(pm, q_start, q_end, today=None):
     """Berechnet IST/Vstd/Abw/Feiertage/verfueg/eur60 für ein beliebiges Quartalsfenster.
 
@@ -2529,10 +2608,14 @@ def compute_quartal(pm, q_start, q_end, today=None):
     # Therapeuten ueberlappt, zaehlt nicht (Valentin 09.09.2026 — wie in der Auslastung; PM-Wochenreport identisch)
     from datetime import datetime as _dt_iv
     erb_iv = {}
+    erb_iv_ot = {}   # fuer die Ueberstunden-Regel: ohne Parallel-Positionen (gleiche Menge wie die Ist-Stunden der Wochenreports)
     for t, mid in arbeitsliste:
         if not mid or t.get('status') not in ('erbracht', 'erbracht_und_unterschrieben') or t.get('art') != 'normal' or t.get('is_blocker'): continue
         if _ist_test_termin(t) or _termin_id(t) in verdraengt: continue
-        try: erb_iv.setdefault(mid, []).append((_dt_iv.fromisoformat(t['beginn'].replace('Z', '+00:00')), _dt_iv.fromisoformat(t['ende'].replace('Z', '+00:00'))))
+        try:
+            _iv = (_dt_iv.fromisoformat(t['beginn'].replace('Z', '+00:00')), _dt_iv.fromisoformat(t['ende'].replace('Z', '+00:00')))
+            erb_iv.setdefault(mid, []).append(_iv)
+            if not _ist_parallel_position(t): erb_iv_ot.setdefault(mid, []).append(_iv)
         except Exception: pass
     termine_skip_gep_overlap = 0
 
@@ -2699,17 +2782,45 @@ def compute_quartal(pm, q_start, q_end, today=None):
     # wie Auslastungs-Workflow und PM-Wochenreport; Wochen-Leitungszeit auf Viertelstunden gerundet, anteilig an
     # den verfuegbaren Stunden der SL im Fenster (seit 11.09.2026 ohne Teamevent-Anteil). Kalender-Blöcke „Leitung & Orga"
     # lagen im Q3 bis auf 3 h daneben.
+    # Ueberstunden aus der Mitarbeiter-App (Valentin 23.09.2026; PM-Wochenreport identisch): Nenner += Therapie-Ueberstunden 1:1
+    # (je Tag gedeckelt auf die erbrachte Behandlung ausserhalb der verfuegbaren Zeit), −= Freizeitausgleich (soweit nicht schon
+    # MediFox-Abwesenheit); je TH im eff-Fenster, Ausgleich nur an Werktagen (Nenner-Einheit), mit Standort-Gewicht.
+    ot_ber = 0.0; ausgl_ber = 0.0; ot_ausser = 0.0
+    ot_th, ausgl_th = {}, {}
+    _otd = _overtime_data(iso_q_start, iso_eff_end)
+    if _otd['therapie'] or _otd['ausgleich']:
+        for m in bundle_th:
+            es = th_eff_start.get(m['id']); ee = th_eff_end.get(m['id'])
+            if es is None or ee is None: continue
+            _abw_days = abw_tage.get(m['id'], set())
+            for tag, mn in _ot_ausserhalb_je_tag(m, erb_iv_ot.get(m['id'], []), _abw_days, es.isoformat(), ee.isoformat()).items():
+                g_ = gew(_th_slug(m), _date.fromisoformat(tag))
+                if g_ <= 0: continue
+                ot_ausser += mn / 60 * g_
+                _b = min(_ot_min(_otd['therapie'], m['id'], tag), mn) / 60 * g_
+                if _b > 0: ot_ber += _b; ot_th[m['id']] = ot_th.get(m['id'], 0.0) + _b
+            day = es
+            while day <= ee:
+                tag = day.isoformat()
+                a_ = _ot_min(_otd['ausgleich'], m['id'], tag)
+                if a_ > 0 and day.weekday() < 5 and tag not in _abw_days and tag not in BERLIN_FEIERTAGE:
+                    g_ = gew(_th_slug(m), day)
+                    if g_ > 0:
+                        _a = min(a_, max(0.0, _th_stunden_am_werktag(m, day) * 60)) / 60 * g_
+                        ausgl_ber += _a; ausgl_th[m['id']] = ausgl_th.get(m['id'], 0.0) + _a
+                day += _td(days=1)
+
     lz_ber = 0.0
     n_th_standort = _th_count_je_standort(ma, effective_end)
     for m in bundle_th:
         if not _ist_sl(m): continue
-        verf_th = vstd_th.get(m['id'], 0.0) - abw_th.get(m['id'], 0.0) - feier_th.get(m['id'], 0.0) - team_th.get(m['id'], 0.0)
+        verf_th = vstd_th.get(m['id'], 0.0) - abw_th.get(m['id'], 0.0) - feier_th.get(m['id'], 0.0) - team_th.get(m['id'], 0.0) - ausgl_th.get(m['id'], 0.0)
         if verf_th <= 0: continue
         spw = _th_gruppe_wochenstunden(m, effective_end)
         if spw <= 0: continue
         lz_ber += verf_th * (round(spw * _lz_pct(n_th_standort.get(_standort_slug(m), 0)) * 4) / 4) / spw
 
-    verfueg = vstd_ber - abw_ber - feiertage_ber - lz_ber - team_ber
+    verfueg = vstd_ber - abw_ber - feiertage_ber - lz_ber - team_ber - ausgl_ber + ot_ber   # Ueberstunden 1:1 dazu, Ausgleich weg (23.09.2026)
     if verfueg <= 0:
         return None
     eur60 = ist / verfueg
@@ -2743,6 +2854,9 @@ def compute_quartal(pm, q_start, q_end, today=None):
         'feiertage_ber': feiertage_ber,
         'lz_ber': lz_ber,                          # seit 09.09.2026: Leitungszeit der Standortleitungen (im Nenner abgezogen)
         'team_ber': team_ber,                      # seit 11.09.2026: Teamevent innerhalb der Arbeitszeit (im Nenner abgezogen)
+        'ot_ber': ot_ber,                          # seit 23.09.2026: Therapie-Ueberstunden aus der App (gedeckelt, im Nenner 1:1 dazu)
+        'ausgl_ber': ausgl_ber,                    # seit 23.09.2026: Freizeitausgleich aus der App (im Nenner abgezogen, soweit nicht MediFox)
+        'ot_ausser_h': ot_ausser,                  # Ausweis: erbrachte Behandlung ausserhalb der verfuegbaren Zeit (gewichtet)
         'verfueg': verfueg,
         'ist': ist,
         'ist_geplant08': ist_geplant08,
@@ -2801,6 +2915,8 @@ def compute_live_quartalsstand(pm, today=None):
         'feiertage_h_gemessen': result['feiertage_ber'],
         'lz_h_gemessen': result['lz_ber'],
         'team_h_gemessen': result['team_ber'],
+        'ot_h_gemessen': result.get('ot_ber', 0.0),        # seit 23.09.2026: Ueberstunden aus der App (Nenner +)
+        'ausgl_h_gemessen': result.get('ausgl_ber', 0.0),  # seit 23.09.2026: Freizeitausgleich aus der App (Nenner −)
         'q1_abw_quote': q1_abw_quote,
         'bundle_h_pro_woche': result['bundle_h_pro_woche'],
         'wochen_q_bisher': result['wochen'],
