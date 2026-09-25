@@ -2340,6 +2340,7 @@ _OT_CACHE = {}
 # Monatsumsatz und Controlling bleibt. `ab` = None: noch kein Datum (z. B. Kuendigungsdatum offen) -> keine Wirkung.
 NICHT_GEWERTET = {
     '67ebee1f-bdd4-4f03-8438-e5ccd15d63d3': {'name': 'Theda Fallois', 'ab': '2026-07-01', 'grund': 'selbst-managend'},
+    'bee965a4-c54f-4d8d-b544-355dda29717a': {'name': 'Simon Rubey', 'ab': '2026-09-14', 'grund': 'gekuendigt'},   # Valentin 25.09.2026: ab letzter Woche (KW38)
 }
 AUSSCHLUSS_AKTIV = True
 
