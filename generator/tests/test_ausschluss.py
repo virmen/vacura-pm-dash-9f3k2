@@ -10,8 +10,14 @@ def test_theda_ab_q3_ganz_raus():
     assert g._ausschluss_ende('67ebee1f-bdd4-4f03-8438-e5ccd15d63d3', date(2026, 9, 25)) == date(2026, 6, 30)
 
 
-def test_ohne_datum_keine_wirkung():
-    assert g._ausschluss_ende('5512f7a8-8e6b-48db-8cb0-4f18b6d58edc', date(2026, 9, 25)) == date(2026, 9, 25)   # Wiktoria: ab = None
+def test_ohne_datum_keine_wirkung(monkeypatch):
+    monkeypatch.setitem(g.NICHT_GEWERTET, 'x-ohne-datum', {'name': 'Test', 'ab': None, 'grund': 'offen'})
+    assert g._ausschluss_ende('x-ohne-datum', date(2026, 9, 25)) == date(2026, 9, 25)
+
+
+def test_app_liste_wirkt(monkeypatch):
+    monkeypatch.setitem(g._AUSSCHLUSS_APP, 'x-app', {'name': 'App-Fall', 'ab': '2026-09-10', 'grund': 'gekuendigt'})
+    assert g._ausschluss_ende('x-app', date(2026, 9, 25)) == date(2026, 9, 9)
 
 
 def test_unbekannt_und_frueheres_ende_bleiben():

@@ -2340,16 +2340,18 @@ _OT_CACHE = {}
 # Monatsumsatz und Controlling bleibt. `ab` = None: noch kein Datum (z. B. Kuendigungsdatum offen) -> keine Wirkung.
 NICHT_GEWERTET = {
     '67ebee1f-bdd4-4f03-8438-e5ccd15d63d3': {'name': 'Theda Fallois', 'ab': '2026-07-01', 'grund': 'selbst-managend'},
-    '5512f7a8-8e6b-48db-8cb0-4f18b6d58edc': {'name': 'Wiktoria Sobierska', 'ab': None, 'grund': 'gekuendigt zum 30.09.2026', 'hinweis': 'Kuendigungsdatum eintragen (Valentin)'},
 }
 AUSSCHLUSS_AKTIV = True
 
 
+_AUSSCHLUSS_APP = {}   # gekuendigte aus der Mitarbeiter-App (`ausschluss` der Edge Function), gefuellt von _overtime_data()
+
+
 def _ausschluss_ab(mid):
-    """ISO-Datum, ab dem der TH nicht gewertet wird, sonst None."""
+    """ISO-Datum, ab dem der TH nicht gewertet wird, sonst None (Konstante zuerst, dann App)."""
     if not AUSSCHLUSS_AKTIV:
         return None
-    e = NICHT_GEWERTET.get(str(mid)) or {}
+    e = NICHT_GEWERTET.get(str(mid)) or _AUSSCHLUSS_APP.get(str(mid)) or {}
     return e.get('ab') or None
 
 
@@ -2372,7 +2374,7 @@ def _overtime_data(start_iso, end_iso):
     if p:
         try:
             j = json.load(open(p))
-            out = {'therapie': j.get('therapie') or {}, 'ausgleich': j.get('ausgleich') or {}}
+            out = {'therapie': j.get('therapie') or {}, 'ausgleich': j.get('ausgleich') or {}, 'ausschluss': j.get('ausschluss') or {}}
         except Exception as e:
             print(f'WARN: OVERTIME_JSON nicht lesbar ({e}) — Ueberstunden-Regel wirkt nicht')
     else:
@@ -2391,11 +2393,15 @@ def _overtime_data(start_iso, end_iso):
                 j = json.loads(r.stdout)
                 if 'therapie' not in j:
                     raise RuntimeError(str(j)[:200])
-                out = {'therapie': j.get('therapie') or {}, 'ausgleich': j.get('ausgleich') or {}}
+                out = {'therapie': j.get('therapie') or {}, 'ausgleich': j.get('ausgleich') or {}, 'ausschluss': j.get('ausschluss') or {}}
             except Exception as e:
                 print(f'WARN: get-overtime-for-reports nicht erreichbar ({str(e)[:200]}) — Ueberstunden-Regel wirkt nicht')
             finally:
                 _os.unlink(cfg.name)
+    # Gekuendigte aus der App (ab = Tag des Eintrags des Austrittsdatums) fuer _ausschluss_ab(); Konstante hat Vorrang
+    for mid, e in (out.get('ausschluss') or {}).items():
+        if e and e.get('ab'):
+            _AUSSCHLUSS_APP[str(mid)] = {'name': e.get('name') or mid, 'ab': str(e['ab'])[:10], 'grund': e.get('grund') or 'gekuendigt'}
     _OT_CACHE[key] = out
     return out
 
@@ -2466,6 +2472,7 @@ def compute_quartal(pm, q_start, q_end, today=None):
 
     # Probezeit-Check (PM-Vertrag § 8 Abs. 3) — gemeinsame Helper-Funktion
     probezeit_aktiv = is_probezeit(pm.get('startdatum'), q_end)
+    _overtime_data(iso_q_start, iso_eff_end)   # frueh laden: fuellt _AUSSCHLUSS_APP fuer die Fenstergrenzen unten (Ergebnis ist gecacht)
 
     # Bundle-TH: Beschäftigung überlappt mit Q-Fenster UND Start ≤ effective_end - 29 Tage
     ma = _fetch_all('mc934lbrlg7w6e1')
