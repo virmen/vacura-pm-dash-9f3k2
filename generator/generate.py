@@ -2334,6 +2334,34 @@ def _team_stunden_tag(m, datum, bloecke):
 OT_AB = '2026-07-01'
 _OT_CACHE = {}
 
+# Nicht gewertete Therapeuten (Valentin 23./25.09.2026, Stufe 1 = Konstante; identisch in PM-/Management-Wochenreport, SL-Node,
+# App-Auslastung — immer zusammen pflegen; Stufe 2 = Feld in der Mitarbeiter-App). Ab `ab` zaehlen sie im PM-€/h weder Umsatz noch
+# Nenner (symmetrisch wie die 29-Tage-Regel am Anfang) und in der Auslastung weder Soll noch Ist; Umsatz in Management-Report,
+# Monatsumsatz und Controlling bleibt. `ab` = None: noch kein Datum (z. B. Kuendigungsdatum offen) -> keine Wirkung.
+NICHT_GEWERTET = {
+    '67ebee1f-bdd4-4f03-8438-e5ccd15d63d3': {'name': 'Theda Fallois', 'ab': '2026-07-01', 'grund': 'selbst-managend'},
+    '5512f7a8-8e6b-48db-8cb0-4f18b6d58edc': {'name': 'Wiktoria Sobierska', 'ab': None, 'grund': 'gekuendigt zum 30.09.2026', 'hinweis': 'Kuendigungsdatum eintragen (Valentin)'},
+}
+AUSSCHLUSS_AKTIV = True
+
+
+def _ausschluss_ab(mid):
+    """ISO-Datum, ab dem der TH nicht gewertet wird, sonst None."""
+    if not AUSSCHLUSS_AKTIV:
+        return None
+    e = NICHT_GEWERTET.get(str(mid)) or {}
+    return e.get('ab') or None
+
+
+def _ausschluss_ende(mid, eff_end):
+    """Effektives Fensterende eines TH: Tag vor `ab`, falls der Ausschluss vor eff_end greift."""
+    from datetime import date as _date, timedelta as _td
+    ab = _ausschluss_ab(mid)
+    if not ab:
+        return eff_end
+    grenze = _date.fromisoformat(ab) - _td(days=1)
+    return grenze if grenze < eff_end else eff_end
+
 
 def _overtime_data(start_iso, end_iso):
     key = f'{start_iso}|{end_iso}'
@@ -2520,6 +2548,8 @@ def compute_quartal(pm, q_start, q_end, today=None):
             le_d = _date.fromisoformat(le)
             if le_d < eff_end:
                 eff_end = le_d
+
+        eff_end = _ausschluss_ende(m['id'], eff_end)   # nicht gewertet ab `ab` (Valentin 25.09.2026): Zaehler und Nenner enden am Tag davor
 
         if eff_start > eff_end:
             th_eff_start[m['id']] = None
